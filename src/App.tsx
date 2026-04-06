@@ -151,6 +151,76 @@ const fileMatches = (file: File, extensions: string[]) => {
   return extensions.some((extension) => lowerName.endsWith(extension));
 };
 
+function Typewriter({ text }: { text: string }) {
+  const [displayed, setDisplayed] = useState("");
+  const [inView, setInView] = useState(false);
+  const ref = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) setInView(true);
+      },
+      { threshold: 0.1 }
+    );
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!inView) return;
+    let i = 0;
+    setDisplayed("");
+    const timer = setInterval(() => {
+      setDisplayed(text.slice(0, i + 1));
+      i++;
+      if (i === text.length) clearInterval(timer);
+    }, 45);
+    return () => clearInterval(timer);
+  }, [text, inView]);
+
+  return (
+    <h1 className="antigravity-hero-text" ref={ref}>
+      {displayed}<span className="blinking-cursor">|</span>
+    </h1>
+  );
+}
+
+function SectionTypewriter({ text }: { text: string }) {
+  const [displayed, setDisplayed] = useState("");
+  const [inView, setInView] = useState(false);
+  const ref = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) setInView(true);
+      },
+      { threshold: 0.1 }
+    );
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!inView) return;
+    let i = 0;
+    setDisplayed("");
+    const timer = setInterval(() => {
+      setDisplayed(text.slice(0, i + 1));
+      i++;
+      if (i === text.length) clearInterval(timer);
+    }, 45);
+    return () => clearInterval(timer);
+  }, [text, inView]);
+
+  return (
+    <h2 ref={ref}>
+      {displayed}<span className="blinking-cursor">|</span>
+    </h2>
+  );
+}
+
 function App() {
   const [sourcePossessions, setSourcePossessions] =
     useState<Possession[]>(allPossessions);
@@ -189,6 +259,7 @@ function App() {
   const [playerMode, setPlayerMode] = useState<"clip" | "full">("clip");
   const [videoPlaying, setVideoPlaying] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
+  const [currentPage, setCurrentPage] = useState<string>("match-centre");
   const [isPending, startTransition] = useTransition();
 
   const structuredInputRef = useRef<HTMLInputElement | null>(null);
@@ -732,17 +803,23 @@ function App() {
       <div className="app-background" />
       <header className="global-header">
         <div className="brand-lockup">
-          <div className="brand-mark">PL</div>
+          <div className="brand-mark" style={{ background: "transparent", border: "none", boxShadow: "none", padding: 0, width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <img src="/gt-logo.svg" alt="GT Logo" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+          </div>
           <div>
-            <p>PitchLens</p>
+            <p>GT</p>
             <span>Analysis workspace</span>
           </div>
         </div>
         <nav className="header-nav" aria-label="Primary">
           {HEADER_CHANNELS.map((channel) => (
-            <a key={channel.id} href={`#${channel.id}`}>
+            <button
+              key={channel.id}
+              onClick={() => setCurrentPage(channel.id)}
+              className={currentPage === channel.id ? "ghost-button active-nav-button" : "ghost-button"}
+            >
               {channel.label}
-            </a>
+            </button>
           ))}
         </nav>
         <div className="header-status">
@@ -759,9 +836,19 @@ function App() {
         </div>
       </header>
 
+      {currentPage === "match-centre" && (
+        <div className="page-section">
+      <div className="antigravity-hero-container">
+        <div className="big-logo-icon" style={{margin: "0 auto 24px auto", boxShadow: "0 12px 24px rgba(179, 163, 105, 0.4)", background: "transparent"}}>
+            <img src="/gt-logo.svg" alt="GT Logo" style={{ width: "100%", height: "100%", objectFit: "contain", transform: "scale(1.2)" }} />
+        </div>
+        <div className="company-name" style={{textAlign: "center", textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--muted)", fontWeight: 500, fontSize: "16px"}}>GT Demo XI</div>
+        <Typewriter text={`${analysisTeam} analysis workspace`} />
+        <p className="subtitle" style={{textAlign: "center", marginBottom: 0, fontSize: "18px", color: "var(--muted)", maxWidth: "600px", margin: "0 auto"}}>Experience liftoff with the next-generation IDE.</p>
+      </div>
+
       <header className="masthead" id="match-centre">
         <div className="hero-copy-column">
-          <h1>{analysisTeam} analysis workspace</h1>
           <p className="workspace-subtitle">
             {sourceMode === "video" ? "Video-derived evidence" : "Structured evidence"} ·{" "}
             {datasetLabel}
@@ -875,12 +962,16 @@ function App() {
           </div>
         </aside>
       </header>
+      </div>
+      )}
 
       <main className="workspace-grid">
+        {currentPage === "context-lock" && (
+          <div className="page-section">
         <aside className="panel filters-panel" id="context-lock">
           <div className="panel-heading">
             <div>
-              <h2>Filters</h2>
+              <SectionTypewriter text="Filters" />
             </div>
             <p className="panel-copy">
               Control the retrieval window for ranking, comparison, and export.
@@ -1022,11 +1113,15 @@ function App() {
             </span>
           </div>
         </aside>
+      </div>
+        )}
 
+        {currentPage === "rankings" && (
+          <div className="page-section">
         <section className="panel summary-panel">
           <div className="panel-heading">
             <div>
-              <h2>Signal summary</h2>
+              <SectionTypewriter text="Signal summary" />
             </div>
             <p className="panel-copy">
               Signal counts, distributions, and opponent ranking under the current lock.
@@ -1142,11 +1237,15 @@ function App() {
             </div>
           </div>
         </section>
+          </div>
+        )}
 
+        {currentPage === "analysis" && (
+          <div className="page-section">
         <section className="panel retrieval-panel" id="analysis">
           <div className="panel-heading">
             <div>
-              <h2>Representative clips for {activeSignal}</h2>
+              <SectionTypewriter text={`Representative clips for ${activeSignal}`} />
             </div>
             <p className="panel-copy">
               Review the ranked evidence set and inspect the focused clip.
@@ -1522,7 +1621,7 @@ function App() {
         <section className="panel compare-controls">
           <div className="panel-heading">
             <div>
-              <h2>Comparison</h2>
+              <SectionTypewriter text="Comparison" />
             </div>
             <p className="panel-copy">
               Compare two opponents under the same lock.
@@ -1569,11 +1668,15 @@ function App() {
             </div>
           </div>
         </section>
+          </div>
+        )}
 
+        {currentPage === "ingest" && (
+          <div className="page-section">
         <section className="panel data-panel" id="ingest">
           <div className="panel-heading">
             <div>
-              <h2>Ingest</h2>
+              <SectionTypewriter text="Ingest" />
             </div>
             <p className="panel-copy">
               Load one match video or import structured data.
@@ -1804,11 +1907,15 @@ function App() {
           </div>
           {ingestError ? <p className="import-error">{ingestError}</p> : null}
         </section>
+          </div>
+        )}
 
+        {currentPage === "rankings" && (
+          <div className="page-section">
         <section className="panel desk-panel">
           <div className="panel-heading">
             <div>
-              <h2>Presets and notes</h2>
+              <SectionTypewriter text="Presets and notes" />
             </div>
             <p className="panel-copy">
               Quick presets plus a compact readout of the current state.
@@ -1839,7 +1946,11 @@ function App() {
             ))}
           </div>
         </section>
+          </div>
+        )}
 
+        {currentPage === "analysis" && (
+          <div className="page-section">
         <ComparisonBoard
           comparisonMetric={comparisonMetric}
           comparisonText={comparisonText}
@@ -1855,6 +1966,8 @@ function App() {
           onDownload={handleDownload}
           copyStatus={copyStatus}
         />
+          </div>
+        )}
       </main>
     </div>
   );

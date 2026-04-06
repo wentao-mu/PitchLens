@@ -1,18 +1,18 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&display=swap");
 
 :root {
   color-scheme: light;
-  font-family: "IBM Plex Sans", sans-serif;
-  background: #edf6ff;
-  color: #0a2850;
-  --panel: rgba(255, 255, 255, 0.96);
-  --line: rgba(64, 117, 195, 0.12);
-  --line-strong: rgba(64, 117, 195, 0.22);
-  --text: #0a2850;
-  --muted: rgba(10, 40, 80, 0.66);
-  --muted-strong: rgba(10, 40, 80, 0.82);
-  --cyan: #08b4ff;
-  --accent: #2f6dff;
+  font-family: "Google Sans", "Google Sans Flex", -apple-system, sans-serif;
+  background: #FFFFFF;
+  color: #121317;
+  --panel: rgba(255, 255, 255, 0.7);
+  --line: rgba(18, 19, 23, 0.08);
+  --line-strong: rgba(18, 19, 23, 0.16);
+  --text: #121317;
+  --muted: #45474D;
+  --muted-strong: #121317;
+  --cyan: #3279F9;
+  --accent: #3279F9;
 }
 
 * {
@@ -26,8 +26,9 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  background: #eef5fd;
+  background: transparent;
   color: var(--text);
+  -webkit-font-smoothing: antialiased;
 }
 
 a {
@@ -55,12 +56,33 @@ button {
 .app-background {
   position: absolute;
   inset: 0;
-  background:
-    linear-gradient(rgba(92, 131, 215, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(92, 131, 215, 0.05) 1px, transparent 1px);
-  background-size: 64px 64px;
-  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.45), transparent 96%);
+  background: transparent;
+  mask-image: none;
   pointer-events: none;
+  overflow: hidden;
+}
+.app-background::before, .app-background::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  z-index: 0;
+  opacity: 0.6;
+  animation: float 20s infinite ease-in-out alternate;
+}
+.app-background::before {
+  top: 10%; right: 20%; width: 300px; height: 300px;
+  background: rgba(50, 121, 249, 0.15); /* Tech blue */
+}
+.app-background::after {
+  bottom: 20%; left: 10%; width: 400px; height: 400px;
+  background: rgba(249, 50, 86, 0.1); /* Subtle pink/red accent */
+  animation-delay: -10s;
+}
+@keyframes float {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(50px, 30px) scale(1.1); }
+  100% { transform: translate(-30px, -50px) scale(0.9); }
 }
 
 .app-shell::before,
@@ -80,7 +102,13 @@ button {
   justify-content: space-between;
   align-items: center;
   gap: 1.2rem;
-  padding: 1.05rem 2.8rem 0;
+  padding: 1.05rem 2.8rem;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
 }
 
 .brand-lockup {
@@ -94,10 +122,13 @@ button {
   height: 42px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(64, 117, 195, 0.18);
-  background: #e5effd;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #3279F9, #f93256, #f9d532);
+  color: white;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  font-size: 20px;
+  letter-spacing: 0;
 }
 
 .brand-lockup p,
@@ -1642,4 +1673,267 @@ button {
     flex-direction: column;
     align-items: start;
   }
+}
+
+/* Antigravity Global Overrides */
+.panel, .hero-copy-column, .scoreboard-panel, .team-stack, .signal-stack {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(18, 19, 23, 0.04);
+  background: var(--panel) !important;
+}
+
+button {
+  border-radius: 9999px !important;
+  transition: all 0.2s ease;
+}
+
+.data-actions button, .dropzone-actions button, .export-actions button {
+  background: #121317 !important;
+  color: #FFFFFF !important;
+  border: none !important;
+  font-weight: 500;
+}
+
+.data-actions button:hover, .dropzone-actions button:hover, .export-actions button:hover {
+  background: #2F3034 !important;
+  transform: translateY(-1px);
+}
+
+.ghost-button {
+  background: rgba(18, 19, 23, 0.04) !important;
+  color: #121317 !important;
+}
+.ghost-button:hover {
+  background: rgba(18, 19, 23, 0.08) !important;
+}
+
+/* Antigravity Typewriter Hero */
+.antigravity-hero-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 24px 20px;
+  text-align: center;
+  z-index: 10;
+  position: relative;
+  animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.antigravity-hero-text {
+  font-size: min(4vw, 42px);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -1.5px;
+  margin: 16px 0;
+  color: var(--primary-text);
+}
+
+.blinking-cursor {
+  animation: blink 1s step-end infinite;
+  color: var(--accent);
+  margin-left: 4px;
+}
+
+.big-logo-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #3279F9, #f93256, #f9d532);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 700;
+  font-size: 32px;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Antigravity Paginated & Cardless Layout */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+/* Force vertical full-screen paginated pages instead of grids */
+.masthead, .workspace-grid {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center;
+  gap: 0 !important;
+  padding: 0 !important;
+}
+
+.antigravity-hero-container, .hero-copy-column, .scoreboard-panel, .filters-panel, .summary-panel, .retrieval-panel, .export-panel {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  min-height: 100vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: center !important;
+  padding: 10vh 5vw !important;
+  box-sizing: border-box;
+}
+
+/* Remove Card Styles so content floats on stars */
+.panel, .hero-copy-column, .scoreboard-panel, .team-stack, .signal-stack, .retrieval-card, .signal-card, .hero-highlights article, .summary-row, .masthead {
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: none !important;
+}
+
+/* Typography and Layout scaling for Paginated View */
+.panel-heading, .scoreboard-topline, .workspace-subtitle {
+  text-align: center;
+  border-bottom: 2px solid rgba(18,19,23,0.05) !important;
+  padding-bottom: 24px;
+  margin-bottom: 32px;
+  width: 100%;
+  max-width: 800px;
+}
+
+h2, .panel h2 {
+  font-size: min(5vw, 48px) !important;
+  letter-spacing: -2px;
+  margin-bottom: 16px;
+}
+
+/* Enhance child structures to float nicely without cards */
+.filter-grid, .signal-list, .scoreboard-main {
+  width: 100%;
+  max-width: 1000px;
+  gap: 2rem;
+  justify-content: center;
+}
+
+.hero-highlights {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3rem;
+  max-width: 1200px;
+  width: 100%;
+}
+
+/* Smooth hover scaling for elements (not full cards) */
+.hero-highlights article, .signal-card, .team-stack, .signal-stack {
+  transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  border: 1px solid rgba(18,19,23,0.04) !important;
+  border-radius: 20px;
+  padding: 24px !important;
+}
+
+.hero-highlights article:hover, .signal-card:hover, .team-stack:hover, .signal-stack:hover {
+  transform: translateY(-8px) scale(1.02);
+}
+
+/* Scroll Fade In Anim */
+.hero-copy-column, .scoreboard-panel, .filters-panel, .summary-panel, .retrieval-panel {
+  opacity: 0;
+  animation: fadeInUp 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.scoreboard-panel { animation-delay: 0.1s; }
+.filters-panel { animation-delay: 0.2s; }
+.summary-panel { animation-delay: 0.3s; }
+.retrieval-panel { animation-delay: 0.4s; }
+.active-nav-button {
+  background: rgba(18, 19, 23, 0.05) !important;
+  color: #121317 !important;
+  font-weight: 500 !important;
+}
+
+/* Antigravity Global Header Override */
+.global-header {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  background: transparent !important;
+  border-bottom: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  padding: 1.5rem 3rem !important;
+  z-index: 9999 !important;
+  pointer-events: none;
+}
+
+.brand-lockup, .header-status, .header-nav {
+  pointer-events: auto;
+}
+
+/* Borderless, Transparent Navigation */
+.header-nav {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  gap: 24px !important;
+  padding: 0 !important;
+}
+
+.header-nav button {
+  border-radius: 0 !important;
+  padding: 8px 4px !important;
+  font-weight: 500 !important;
+  font-size: 15px !important;
+  letter-spacing: -0.2px !important;
+  transition: all 0.3s ease !important;
+  color: var(--muted) !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.header-nav button:hover {
+  color: var(--text) !important;
+  background: transparent !important;
+}
+
+.active-nav-button {
+  background: transparent !important;
+  color: #121317 !important;
+  box-shadow: none !important;
+  font-weight: 600 !important;
+}
+
+/* Clean up brand and status to remove any box shadows or card looks */
+.brand-lockup {
+  gap: 12px !important;
+}
+.brand-mark {
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  border: 1px solid rgba(18, 19, 23, 0.1) !important;
+  background: transparent !important;
+}
+.header-status strong {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
 }

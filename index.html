@@ -10,6 +10,63 @@
 </head>
 
 <body>
+  <canvas id="antigravity-particles" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -10; background: #FFFFFF;"></canvas>
+  <script>
+    const canvas = document.getElementById('antigravity-particles');
+    const ctx = canvas.getContext('2d');
+    let width, height;
+
+    function resize() {
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = width;
+      canvas.height = height;
+    }
+    
+    window.addEventListener('resize', resize);
+    resize();
+
+    const particles = [];
+    const colors = ['#3279F9', '#f93256', '#f9d532', '#45474D', '#E6E8EA'];
+
+    for (let i = 0; i < 90; i++) {
+        particles.push({
+            x: Math.random() * width,
+            y: Math.random() * height,
+            size: Math.random() * 2 + 1,
+            speedX: Math.random() * 1.2 + 0.3,
+            speedY: Math.random() * 1.2 + 0.3,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            isDash: Math.random() > 0.75
+        });
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, width, height);
+        for (let p of particles) {
+            p.x += p.speedX;
+            p.y += p.speedY;
+
+            if (p.x > width || p.y > height) {
+                p.x = Math.random() * width * 0.8 - 50; 
+                p.y = -50; 
+                p.speedX = Math.random() * 1.2 + 0.3;
+                p.speedY = Math.random() * 1.2 + 0.3;
+            }
+
+            ctx.beginPath();
+            ctx.fillStyle = p.color;
+            if (p.isDash) {
+                ctx.ellipse(p.x, p.y, p.size * 3.5, p.size * 0.8, Math.PI / 4, 0, Math.PI * 2);
+            } else {
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            }
+            ctx.fill();
+        }
+        requestAnimationFrame(draw);
+    }
+    draw();
+  </script>
   <div id="root"></div>
   <script type="module" src="/src/main.tsx"></script>
 </body>
