@@ -1,0 +1,11 @@
+{
+  "datasetLabel": "StatsBomb Arsenal WFC 2018/19 demo",
+  "analysisTeam": "Arsenal WFC",
+  "files": [
+    "19717.json",
+    "19766.json",
+    "19736.json",
+    "19770.json"
+  ],
+  "source": "StatsBomb Open Data"
+}
