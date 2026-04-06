@@ -42,10 +42,10 @@ import type {
 
 const HEADER_CHANNELS = [
   { label: "Overview", id: "match-centre" },
+  { label: "Data Loader", id: "ingest" },
   { label: "Filters", id: "context-lock" },
-  { label: "Ranking", id: "rankings" },
-  { label: "Evidence", id: "analysis" },
-  { label: "Ingest", id: "ingest" },
+  { label: "Scenarios", id: "rankings" },
+  { label: "Deep Dive", id: "analysis" },
 ];
 
 const COMPARISON_METRICS: Array<{
@@ -224,7 +224,7 @@ function SectionTypewriter({ text }: { text: string }) {
 function App() {
   const [sourcePossessions, setSourcePossessions] =
     useState<Possession[]>(allPossessions);
-  const [datasetLabel, setDatasetLabel] = useState("PitchLens sample dataset");
+  const [datasetLabel, setDatasetLabel] = useState("StatsBomb Open Data (UCL 2023/24)");
   const [analysisTeam, setAnalysisTeam] = useState(TARGET_TEAM);
   const [filters, setFilters] = useState<ContextFilters>(defaultFilters);
   const [activeSignal, setActiveSignal] = useState<TacticalSignal>(
@@ -259,6 +259,7 @@ function App() {
   const [playerMode, setPlayerMode] = useState<"clip" | "full">("clip");
   const [videoPlaying, setVideoPlaying] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
+  const [isMediaMode, setIsMediaMode] = useState<"pitch" | "video">("pitch");
   const [currentPage, setCurrentPage] = useState<string>("match-centre");
   const [isPending, startTransition] = useTransition();
 
@@ -843,7 +844,7 @@ function App() {
             <img src="/gt-logo.svg" alt="GT Logo" style={{ width: "100%", height: "100%", objectFit: "contain", transform: "scale(1.2)" }} />
         </div>
         <div className="company-name" style={{textAlign: "center", textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--muted)", fontWeight: 500, fontSize: "16px"}}>GT Demo XI</div>
-        <Typewriter text={`${analysisTeam} analysis workspace`} />
+        <Typewriter text={`Pitchlens analysis workspace`} />
         <p className="subtitle" style={{textAlign: "center", marginBottom: 0, fontSize: "18px", color: "var(--muted)", maxWidth: "600px", margin: "0 auto"}}>Experience liftoff with the next-generation IDE.</p>
       </div>
 
@@ -854,47 +855,44 @@ function App() {
             {datasetLabel}
           </p>
           <p className="hero-copy">
-            Upload one match video or load structured data, then filter, compare,
-            and export the current evidence set.
+            Start by loading your data in <strong>Data Loader</strong>, then apply filters, explore signal summaries, and run a deep-dive comparison.
           </p>
           <div className="hero-highlights">
             <article>
-              <span>Source</span>
+              <span>① Data Loader</span>
               <strong>{datasetLabel}</strong>
               <small>
                 {sourceMode === "video" && videoSummary
-                  ? `${videoSummary.momentCount} extracted clips`
-                  : `${teamPossessions.length} mapped clips`}
+                  ? `${videoSummary.momentCount} clips extracted from video`
+                  : `${teamPossessions.length} clips loaded · StatsBomb open data`}
               </small>
             </article>
             <article>
-              <span>Context lock</span>
+              <span>② Filters</span>
               <strong>{contextLabel}</strong>
               <small>
                 {filters.opponent === "All opponents"
-                  ? "All opponents"
-                  : filters.opponent}
+                  ? "All opponents · No lock applied"
+                  : `Locked to ${filters.opponent}`}
               </small>
             </article>
             <article>
-              <span>Engine</span>
-              <strong>{videoSummary?.engine ?? "Structured data workspace"}</strong>
+              <span>③ Active Signal</span>
+              <strong>{activeSignal}</strong>
               <small>
-                {videoSummary
-                  ? `${videoSummary.videoDurationLabel} · ${videoSummary.resolution}`
-                  : "Ready for video, CSV, or JSON ingest"}
+                {deferredFiltered.length} matching possessions in scope
               </small>
             </article>
             <article>
-              <span>Focused clip</span>
+              <span>④ Focused Clip</span>
               <strong>
                 {focusPossession
                   ? focusPossession.videoStartSec != null
                     ? formatClock(focusPossession.videoStartSec)
                     : `${focusPossession.minute}'`
-                  : "None"}
+                  : "None selected"}
               </strong>
-              <small>{focusPossession?.title ?? "Select a clip to inspect it."}</small>
+              <small>{focusPossession?.title ?? "Go to Deep Dive to inspect a clip."}</small>
             </article>
           </div>
           <div className="summary-list">
@@ -917,64 +915,21 @@ function App() {
             )}
           </div>
         </div>
-
-        <aside className="scoreboard-panel">
-          <div className="scoreboard-topline">
-            <span>Comparison</span>
-            <strong>{isPending ? "Updating" : "Locked"}</strong>
-          </div>
-          <div className="scoreboard-main">
-            <div className="team-stack">
-              <small>Lane A</small>
-              <strong>{leftOpponent || "Awaiting opponent"}</strong>
-              <span>{leftComparison.length} matched clips</span>
-            </div>
-            <div className="signal-stack">
-              <small>Signal</small>
-              <strong>{activeSignal}</strong>
-              <span>Current evidence set</span>
-            </div>
-            <div className="team-stack">
-              <small>Lane B</small>
-              <strong>{rightOpponent || "Awaiting opponent"}</strong>
-              <span>{rightComparison.length} matched clips</span>
-            </div>
-          </div>
-          <p className="scoreboard-summary">{comparisonText}</p>
-          <div className="scoreboard-metrics">
-            <div>
-              <span>Evidence pool</span>
-              <strong>{deferredFiltered.length}</strong>
-            </div>
-            <div>
-              <span>Minute brush</span>
-              <strong>{buildMinuteRangeLabel(filters.minuteRange)}</strong>
-            </div>
-            <div>
-              <span>{comparisonLabel}</span>
-              <strong>
-                {metricFormatter(
-                  comparisonMetric,
-                  Math.max(leftComparisonMetric, rightComparisonMetric),
-                )}
-              </strong>
-            </div>
-          </div>
-        </aside>
       </header>
       </div>
       )}
 
+
       <main className="workspace-grid">
         {currentPage === "context-lock" && (
           <div className="page-section">
-        <aside className="panel filters-panel" id="context-lock">
+        <section className="panel filters-panel" id="context-lock">
           <div className="panel-heading">
             <div>
               <SectionTypewriter text="Filters" />
             </div>
             <p className="panel-copy">
-              Control the retrieval window for ranking, comparison, and export.
+              Isolate match data by selecting specific teams, pitch locations, or match phases. Your selections will dynamically rebuild all analytical models and video clips on other pages.
             </p>
           </div>
           <div className="filter-grid">
@@ -1112,39 +1067,82 @@ function App() {
               compact and replayable.
             </span>
           </div>
-        </aside>
+        </section>
       </div>
         )}
 
         {currentPage === "rankings" && (
           <div className="page-section">
         <section className="panel summary-panel">
-          <div className="panel-heading">
-            <div>
-              <SectionTypewriter text="Signal summary" />
+            <div className="panel-heading">
+              <div>
+                <SectionTypewriter text="Analytical Scenarios" />
+              </div>
+              <p className="panel-copy">
+                Load predefined tactical rubrics to instantly generate human-readable insights from raw match entropy.
+              </p>
             </div>
-            <p className="panel-copy">
-              Signal counts, distributions, and opponent ranking under the current lock.
-            </p>
-          </div>
-          <div className="signal-list">
+            
+            <div className="preset-grid">
+              {QUICK_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={activePresetId === preset.id ? "preset-card preset-card--active" : "preset-card"}
+                  onClick={() => applyPreset(preset.id)}
+                >
+                  <strong>{preset.label}</strong>
+                  <span>{preset.description}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="insight-list" style={{ marginBottom: "2rem" }}>
+              {deskInsights.map((insight) => (
+                <article key={insight} className="insight-item">
+                  {insight}
+                </article>
+              ))}
+            </div>
+
+            <div className="panel-heading" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "2rem" }}>
+              <div>
+                <SectionTypewriter text="Telemetry Distributions" />
+              </div>
+              <p className="panel-copy">
+                Statistical breakdown of signal density and structural tendencies across the current selection.
+              </p>
+            </div>
+          <div className="statsbomb-signal-grid">
             {summaries.map((summary) => (
               <button
                 key={summary.signal}
                 type="button"
                 className={
                   summary.signal === activeSignal
-                    ? "signal-card signal-card--active"
-                    : "signal-card"
+                    ? "sb-kpi-card sb-kpi-card--active"
+                    : "sb-kpi-card"
                 }
                 onClick={() => handleSignalSelection(summary.signal)}
               >
-                <span>{summary.signal}</span>
-                <strong>{summary.count} clips</strong>
-                <small>
-                  Avg xT {summary.averageThreat.toFixed(2)} | Avg AV{" "}
-                  {summary.averageActionValue.toFixed(0)}
-                </small>
+                <header>
+                  <span>{summary.signal}</span>
+                  <div className="sb-status-dot" />
+                </header>
+                <div className="sb-kpi-val">
+                  <strong>{summary.count}</strong>
+                  <small>detections</small>
+                </div>
+                <footer>
+                  <div>
+                    <span>Avg xT</span>
+                    <strong>{summary.averageThreat.toFixed(3)}</strong>
+                  </div>
+                  <div>
+                    <span>Avg AV</span>
+                    <strong>{summary.averageActionValue.toFixed(0)}</strong>
+                  </div>
+                </footer>
               </button>
             ))}
           </div>
@@ -1163,6 +1161,7 @@ function App() {
                   }
                   onClick={() => handleSignalSelection(summary.signal)}
                 >
+                  <strong>{summary.count}</strong>
                   <div className="signal-column-bar">
                     <i
                       style={{
@@ -1170,7 +1169,6 @@ function App() {
                       }}
                     />
                   </div>
-                  <strong>{summary.count}</strong>
                   <span>{summary.signal.split(" ")[0]}</span>
                 </button>
               );
@@ -1241,445 +1239,335 @@ function App() {
         )}
 
         {currentPage === "analysis" && (
-          <div className="page-section">
-        <section className="panel retrieval-panel" id="analysis">
-          <div className="panel-heading">
-            <div>
-              <SectionTypewriter text={`Representative clips for ${activeSignal}`} />
-            </div>
-            <p className="panel-copy">
-              Review the ranked evidence set and inspect the focused clip.
-            </p>
-          </div>
-          <div className="retrieval-layout">
-            <div className="retrieval-list">
-              {deferredRanked.length === 0 ? (
-                <div className="empty-state">
-                  No clips match the current lock. Relax the filters or switch the signal.
-                </div>
-              ) : (
-                deferredRanked.map((possession, index) => (
-                  <article
-                    key={possession.id}
-                    className={
-                      focusPossession?.id === possession.id
-                        ? "retrieval-card retrieval-card--active"
-                        : "retrieval-card"
-                    }
-                  >
-                    <div className="retrieval-main">
+          <div className="page-section analysis-page-wrap">
+            <div className="deep-dive-workspace">
+              {/* LEFT: Sidebar with Clip list and Timeline */}
+              <div className="dd-sidebar-left" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                <div className="dd-clip-list">
+                  <div className="dd-panel-label">
+                    <span>Clips</span>
+                    <small>{deferredRanked.length} results</small>
+                  </div>
+                  {deferredRanked.length === 0 ? (
+                    <div className="empty-state">No clips match the current filters.</div>
+                  ) : (
+                    deferredRanked.map((possession, index) => (
                       <button
-                        type="button"
-                        className="retrieval-item"
+                        key={possession.id}
+                        className={focusId === possession.id ? "dd-clip-card dd-clip-card--active" : "dd-clip-card"}
                         onClick={() => setFocusId(possession.id)}
                       >
-                        <div className="retrieval-rank">{index + 1}</div>
-                        <div className="retrieval-copy">
-                          <div className="retrieval-topline">
-                            <h3>{possession.title}</h3>
-                            <span>
-                              {possession.videoStartSec != null
-                                ? formatClock(possession.videoStartSec)
-                                : `${possession.minute}'`}
+                        <div className="dd-clip-num">{index + 1}</div>
+                        <div className="dd-clip-body">
+                          <div className="dd-clip-title">{possession.title}</div>
+                          <div className="dd-clip-meta">
+                            {possession.opponent} · {possession.phase} · {possession.minute}'
+                          </div>
+                          <div className="dd-clip-scores">
+                            <span style={{ color: "#E92727" }}>xT {possession.xThreat.toFixed(3)}</span>
+                            <span>AV {possession.actionValue}</span>
+                            <span style={{ fontWeight: 600, color: "var(--text)" }}>
+                              {possession.ranking.total.toFixed(2)}
                             </span>
                           </div>
-                          <p>
-                            {possession.opponent} | {possession.phase} | {possession.zone} |
-                            {" "}xT {possession.xThreat.toFixed(2)} | AV {possession.actionValue}
-                          </p>
-                          <div className="score-breakdown">
-                            <span>Signal {possession.ranking.signal.toFixed(2)}</span>
-                            <span>Context {possession.ranking.context.toFixed(2)}</span>
-                            <span>Diversity {possession.ranking.diversity.toFixed(2)}</span>
-                            <strong>Total {possession.ranking.total.toFixed(2)}</strong>
-                          </div>
                         </div>
                       </button>
-                      <button
-                        type="button"
-                        className="retrieval-expand"
-                        onClick={() =>
-                          setExpandedId((current) =>
-                            current === possession.id ? "" : possession.id,
-                          )
-                        }
-                      >
-                        {expandedId === possession.id ? "Collapse" : "Expand"}
-                      </button>
-                    </div>
-                    {expandedId === possession.id ? (
-                      <div className="retrieval-expanded">
-                        <MiniPitch possession={possession} />
-                        <div>
-                          <p>{possession.note}</p>
-                          <p>{possession.whyItMatters}</p>
-                        </div>
-                      </div>
-                    ) : null}
-                  </article>
-                ))
-              )}
-            </div>
-            <div className="focus-panel">
-              {focusPossession ? (
-                <>
-                  <div className="focus-header">
-                    <div>
-                      <h3>{focusPossession.title}</h3>
-                    </div>
-                    <span>
-                      {focusPossession.videoStartSec != null &&
-                        focusPossession.videoEndSec != null
-                        ? `${formatClock(focusPossession.videoStartSec)}-${formatClock(
-                          focusPossession.videoEndSec,
-                        )}`
-                        : `${focusPossession.matchLabel}, ${focusPossession.minute}'`}
-                    </span>
-                  </div>
+                    ))
+                  )}
+                </div>
 
-                  <div className="focus-tabs">
-                    {FOCUS_VIEWS.map((view) => (
+                {/* Timeline strip - now pinned in the same left column */}
+                <div className="dd-timeline">
+                  <div className="dd-panel-title">
+                    <span>Tactical Timeline</span>
+                  </div>
+                  <div className="dd-timeline-track">
+                    <div className="dd-timeline-line" />
+                    {timelineMoments.map((moment) => (
                       <button
-                        key={view.id}
-                        type="button"
-                        className={
-                          focusView === view.id
-                            ? "focus-tab focus-tab--active"
-                            : "focus-tab"
-                        }
-                        onClick={() => setFocusView(view.id)}
-                      >
-                        {view.label}
-                      </button>
+                        key={moment.id}
+                        className={focusPossession?.id === moment.id ? "dd-timeline-node dd-timeline-node--active" : "dd-timeline-node"}
+                        style={{ left: `${((_timelineTime(moment) / timelineRangeSec) * 100).toFixed(2)}%` }}
+                        onClick={() => setFocusId(moment.id)}
+                        title={`${moment.minute}'`}
+                      />
                     ))}
                   </div>
+                  <div className="dd-timeline-scale">
+                    {timelineMarks.map((mark) => (
+                      <span key={mark}>{Math.round(mark / 60)}'</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
 
-                  <div className="video-room">
-                    <div className="video-screen">
-                      {playerSrc ? (
-                        <video
-                          key={playerSrc}
-                          ref={videoRef}
-                          src={playerSrc}
-                          poster={focusPossession.videoPosterUrl}
-                          preload="metadata"
-                          playsInline
-                          onLoadedMetadata={() => {
-                            if (playerMode === "full") {
-                              seekFullVideoToFocus();
-                            } else {
-                              syncVideoMetrics();
-                            }
-                          }}
-                          onPlay={() => setVideoPlaying(true)}
-                          onPause={() => setVideoPlaying(false)}
-                          onEnded={() => {
-                            setVideoPlaying(false);
-                            setVideoProgress(1);
-                          }}
-                          onTimeUpdate={syncVideoMetrics}
-                        />
-                      ) : (
+              {/* CENTER: Spatial/Video Workspace */}
+              <div className="dd-pitch-col">
+                <div className="dd-panel-label">
+                  <div className="dd-media-switcher">
+                    <button 
+                      className={isMediaMode === "pitch" ? "active" : ""} 
+                      onClick={() => setIsMediaMode("pitch")}
+                    >Spatial Map</button>
+                    <button 
+                      className={isMediaMode === "video" ? "active" : ""} 
+                      onClick={() => setIsMediaMode("video")}
+                    >Source Video</button>
+                  </div>
+                  <small>{isMediaMode === "pitch" ? "Tactical 360°" : "Broadcast Feed"}</small>
+                </div>
+                
+                {focusPossession ? (
+                  <div className="dd-media-container">
+                    {isMediaMode === "pitch" ? (
+                      <div className="dd-media-pitch-wrap">
                         <MiniPitch possession={focusPossession} />
-                      )}
-                      <div className="video-overlay">
-                        <div className="video-overlay-actions">
-                          <button
-                            type="button"
-                            className="video-control"
-                            onClick={togglePlayback}
-                          >
-                            {videoPlaying
-                              ? "Pause"
-                              : videoProgress >= 1
-                                ? "Replay"
-                                : "Play"}
-                          </button>
-                          {focusPossession.fullVideoUrl ? (
-                            <div className="video-mode-switcher">
-                              <button
-                                type="button"
-                                className={
-                                  playerMode === "clip"
-                                    ? "video-mode-chip video-mode-chip--active"
-                                    : "video-mode-chip"
-                                }
-                                onClick={() => setPlayerMode("clip")}
-                              >
-                                Clip
-                              </button>
-                              <button
-                                type="button"
-                                className={
-                                  playerMode === "full"
-                                    ? "video-mode-chip video-mode-chip--active"
-                                    : "video-mode-chip"
-                                }
-                                onClick={() => setPlayerMode("full")}
-                              >
-                                Full match
-                              </button>
-                            </div>
-                          ) : null}
+                        <div className="dd-pitch-signal">
+                          <span className="dd-signal-tag">{focusPossession.primarySignal}</span>
+                          {focusPossession.secondarySignals.map(s => (
+                            <span key={s} className="dd-signal-tag dd-signal-tag--secondary">{s}</span>
+                          ))}
                         </div>
-                        <span>
-                          {playerMode === "clip"
-                            ? `${focusPossession.durationSec}s extracted clip`
-                            : focusPossession.videoStartSec != null &&
-                              focusPossession.videoEndSec != null
-                              ? `Full source · jump to ${formatClock(
-                                focusPossession.videoStartSec,
-                              )}-${formatClock(focusPossession.videoEndSec)}`
-                              : "No source video linked"}
-                        </span>
                       </div>
+                    ) : (
+                      <div className="video-room">
+                        <div className="video-screen">
+                          {playerSrc ? (
+                            <video
+                              key={playerSrc}
+                              ref={videoRef}
+                              src={playerSrc}
+                              poster={focusPossession.videoPosterUrl}
+                              preload="metadata"
+                              playsInline
+                              onLoadedMetadata={() => {
+                                if (playerMode === "full") {
+                                  seekFullVideoToFocus();
+                                } else {
+                                  syncVideoMetrics();
+                                }
+                              }}
+                              onPlay={() => setVideoPlaying(true)}
+                              onPause={() => setVideoPlaying(false)}
+                              onEnded={() => {
+                                setVideoPlaying(false);
+                                setVideoProgress(1);
+                              }}
+                              onTimeUpdate={syncVideoMetrics}
+                            />
+                          ) : (
+                            <div className="video-placeholder">No video linked for this possession.</div>
+                          )}
+                          <div className="video-overlay">
+                            <div className="video-overlay-actions">
+                              <button
+                                type="button"
+                                className="video-control"
+                                onClick={togglePlayback}
+                              >
+                                {videoPlaying ? "Pause" : videoProgress >= 1 ? "Replay" : "Play"}
+                              </button>
+                              {focusPossession.fullVideoUrl && (
+                                <div className="video-mode-switcher">
+                                  <button
+                                    type="button"
+                                    className={playerMode === "clip" ? "video-mode-chip video-mode-chip--active" : "video-mode-chip"}
+                                    onClick={() => setPlayerMode("clip")}
+                                  >Clip</button>
+                                  <button
+                                    type="button"
+                                    className={playerMode === "full" ? "video-mode-chip video-mode-chip--active" : "video-mode-chip"}
+                                    onClick={() => setPlayerMode("full")}
+                                  >Full match</button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="video-progress">
+                           <i style={{ width: `${videoProgress * 100}%` }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="empty-state dd-pitch-empty">Select a clip to view it.</div>
+                )}
+              </div>
+
+              {/* RIGHT: Detail panel */}
+              <div className="dd-detail-col">
+                {focusPossession ? (
+                  <>
+                    <div className="dd-panel-label">
+                      <span>Analysis</span>
+                      <small>{focusPossession.matchLabel}</small>
                     </div>
-                    <div className="video-progress">
-                      <i style={{ width: `${videoProgress * 100}%` }} />
-                    </div>
-                    <div className="video-markers">
-                      {focusPossession.path.map((point, index) => (
-                        <span key={`${focusPossession.id}-${point.label}-${index}`}>
-                          {point.label}
-                        </span>
+                    <h2 className="dd-title">{focusPossession.title}</h2>
+
+                    {/* Tabs */}
+                    <div className="focus-tabs">
+                      {FOCUS_VIEWS.map((view) => (
+                        <button
+                          key={view.id}
+                          type="button"
+                          className={focusView === view.id ? "focus-tab focus-tab--active" : "focus-tab"}
+                          onClick={() => setFocusView(view.id)}
+                        >
+                          {view.label}
+                        </button>
                       ))}
                     </div>
-                  </div>
 
-                  {focusView === "overview" ? (
-                    <>
-                      <div className="focus-meta">
-                        <div>
-                          <span>Formation</span>
-                          <strong>{focusPossession.formation}</strong>
+                    {focusView === "overview" && (
+                      <div className="dd-overview">
+                        <div className="dd-kpi-row">
+                          <div className="dd-kpi"><span>xThreat</span><strong>{focusPossession.xThreat.toFixed(3)}</strong></div>
+                          <div className="dd-kpi"><span>Action Value</span><strong>{focusPossession.actionValue}</strong></div>
+                          <div className="dd-kpi"><span>Passes</span><strong>{focusPossession.passes}</strong></div>
+                          <div className="dd-kpi"><span>Duration</span><strong>{focusPossession.durationSec}s</strong></div>
                         </div>
-                        <div>
-                          <span>Players</span>
-                          <strong>{focusPossession.players.join(", ")}</strong>
+                        <div className="dd-stats-grid">
+                          <div><span>Formation</span><strong>{focusPossession.formation}</strong></div>
+                          <div><span>Phase</span><strong>{focusPossession.phase}</strong></div>
+                          <div><span>Zone</span><strong>{focusPossession.zone}</strong></div>
+                          <div><span>Outcome</span><strong>{focusPossession.outcome}</strong></div>
                         </div>
-                        <div>
-                          <span>Outcome</span>
-                          <strong>{focusPossession.outcome}</strong>
+                        <div className="dd-players">
+                          {focusPossession.players.map(p => (
+                            <span key={p} className="dd-player-chip">{p}</span>
+                          ))}
                         </div>
-                        <div>
-                          <span>Confidence</span>
-                          <strong>
-                            {focusPossession.analysisConfidence != null
-                              ? `${Math.round(focusPossession.analysisConfidence * 100)}%`
-                              : "n/a"}
-                          </strong>
-                        </div>
+                        <p className="dd-note">{focusPossession.note}</p>
+                        <p className="dd-why">{focusPossession.whyItMatters}</p>
                       </div>
-                      <p className="focus-note">{focusPossession.note}</p>
-                      <p className="focus-why">{focusPossession.whyItMatters}</p>
-                    </>
-                  ) : null}
+                    )}
 
-                  {focusView === "sequence" ? (
-                    <div className="sequence-board">
-                      <div className="sequence-split">
-                        <MiniPitch possession={focusPossession} />
-                        <div className="sequence-list">
-                          {focusPossession.path.map((point, index) => (
-                            <div key={`${focusPossession.id}-${point.label}-${index}`}>
-                              <span>Step {index + 1}</span>
+                    {focusView === "sequence" && (
+                      <div className="dd-sequence">
+                        {focusPossession.path.map((point, i) => (
+                          <div key={`seq-${i}`} className="dd-seq-step">
+                            <div className="dd-seq-num">{i + 1}</div>
+                            <div>
                               <strong>{point.label}</strong>
-                              <small>
-                                Zone coordinate {Math.round(point.x)},
-                                {Math.round(point.y)}
-                              </small>
+                              <small>Zone ({Math.round(point.x)}, {Math.round(point.y)})</small>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {focusView === "context" && (
+                      <div className="dd-context">
+                        <div className="dd-stats-grid">
+                          <div><span>Scoreline</span><strong>{focusPossession.scoreline}</strong></div>
+                          <div><span>Game state</span><strong>{focusPossession.gameState}</strong></div>
+                          <div><span>Transition</span><strong>{focusPossession.transitionType}</strong></div>
+                          <div><span>Progression</span><strong>{focusPossession.progression}</strong></div>
+                        </div>
+                        <div className="dd-rank-bars">
+                          {[
+                            { label: "Signal fit", val: focusPossession.ranking.signal },
+                            { label: "Context fit", val: focusPossession.ranking.context },
+                            { label: "Diversity", val: focusPossession.ranking.diversity },
+                          ].map(({ label, val }) => (
+                            <div key={label} className="dd-rank-bar">
+                              <div className="dd-rank-bar-label">
+                                <span>{label}</span>
+                                <strong>{val.toFixed(2)}</strong>
+                              </div>
+                              <div className="dd-rank-bar-track">
+                                <div className="dd-rank-bar-fill" style={{ width: `${val * 100}%` }} />
+                              </div>
                             </div>
                           ))}
                         </div>
                       </div>
-                    </div>
-                  ) : null}
-
-                  {focusView === "context" ? (
-                    <div className="context-board">
-                      <div className="context-grid">
-                        <div>
-                          <span>Scoreline</span>
-                          <strong>{focusPossession.scoreline}</strong>
-                        </div>
-                        <div>
-                          <span>Transition</span>
-                          <strong>{focusPossession.transitionType}</strong>
-                        </div>
-                        <div>
-                          <span>Duration</span>
-                          <strong>{focusPossession.durationSec}s</strong>
-                        </div>
-                        <div>
-                          <span>Passes</span>
-                          <strong>{focusPossession.passes}</strong>
-                        </div>
-                        <div>
-                          <span>Video window</span>
-                          <strong>
-                            {focusPossession.videoStartSec != null &&
-                              focusPossession.videoEndSec != null
-                              ? `${formatClock(focusPossession.videoStartSec)}-${formatClock(
-                                focusPossession.videoEndSec,
-                              )}`
-                              : "Unlinked"}
-                          </strong>
-                        </div>
-                        <div>
-                          <span>Pitch confidence</span>
-                          <strong>
-                            {focusPossession.pitchConfidence != null
-                              ? `${Math.round(focusPossession.pitchConfidence * 100)}%`
-                              : "n/a"}
-                          </strong>
-                        </div>
-                      </div>
-                      <div className="context-bars">
-                        <div>
-                          <span>Signal fit</span>
-                          <div className="context-bar-track">
-                            <i
-                              style={{
-                                width: `${focusPossession.ranking.signal * 100}%`,
-                              }}
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <span>Context fit</span>
-                          <div className="context-bar-track">
-                            <i
-                              style={{
-                                width: `${focusPossession.ranking.context * 100}%`,
-                              }}
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <span>Diversity</span>
-                          <div className="context-bar-track">
-                            <i
-                              style={{
-                                width: `${focusPossession.ranking.diversity * 100}%`,
-                              }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <div className="empty-state">
-                  Choose a representative clip to inspect it.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="timeline-board">
-            <div className="timeline-head">
-              <div>
-                <h3>Timeline</h3>
+                    )}
+                  </>
+                ) : (
+                  <div className="empty-state" style={{ paddingTop: "4rem" }}>
+                    Select a clip to analyze.
+                  </div>
+                )}
               </div>
-              <span>Jump directly to any extracted clip.</span>
             </div>
-            <div className="timeline-track">
-              <div className="timeline-line" />
-              {timelineMoments.map((moment) => (
-                <button
-                  key={moment.id}
-                  type="button"
-                  className={
-                    focusPossession?.id === moment.id
-                      ? "timeline-node timeline-node--active"
-                      : "timeline-node"
-                  }
-                  style={{
-                    left: `${((_timelineTime(moment) / timelineRangeSec) * 100).toFixed(2)}%`,
-                  }}
-                  onClick={() => setFocusId(moment.id)}
-                >
-                  <span>
-                    {moment.videoStartSec != null
-                      ? formatClock(moment.videoStartSec)
-                      : `${moment.minute}'`}
-                  </span>
-                </button>
-              ))}
-            </div>
-            <div className="timeline-scale">
-              {timelineMarks.map((mark) => (
-                <span key={mark}>
-                  {videoSummary ? formatClock(mark) : `${Math.round(mark / 60)}'`}
-                </span>
-              ))}
-            </div>
-          </div>
-        </section>
 
-        <section className="panel compare-controls">
-          <div className="panel-heading">
-            <div>
-              <SectionTypewriter text="Comparison" />
+            {/* Global Comparison & Export Utilities */}
+            <div className="dd-footer-utilities">
+               <section className="panel compare-controls">
+                  <div className="panel-heading">
+                    <div>
+                      <SectionTypewriter text="Strategic Juxtaposition" />
+                    </div>
+                    <p className="panel-copy">
+                      Contrast tactical signatures across different match lanes.
+                    </p>
+                  </div>
+                  <div className="compare-picker">
+                    <label>
+                      Left lane
+                      <select value={leftOpponent} onChange={(e) => setLeftOpponent(e.target.value)}>
+                        {opponents.map((opp) => (
+                          <option key={opp}>{opp}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Right lane
+                      <select value={rightOpponent} onChange={(e) => setRightOpponent(e.target.value)}>
+                        {opponents.map((opp) => (
+                          <option key={opp}>{opp}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="metric-switcher">
+                      {COMPARISON_METRICS.map((metric) => (
+                        <button
+                          key={metric.key}
+                          className={comparisonMetric === metric.key ? "metric-chip metric-chip--active" : "metric-chip"}
+                          onClick={() => setComparisonMetric(metric.key)}
+                        >{metric.label}</button>
+                      ))}
+                    </div>
+                  </div>
+               </section>
+
+               <ComparisonBoard
+                  comparisonMetric={comparisonMetric}
+                  comparisonText={comparisonText}
+                  leftLabel={leftOpponent || "Lane A"}
+                  rightLabel={rightOpponent || "Lane B"}
+                  leftItems={leftComparison}
+                  rightItems={rightComparison}
+                />
+
+                <ExportPanel
+                  note={exportNote}
+                  onCopy={handleCopy}
+                  onDownload={handleDownload}
+                  copyStatus={copyStatus}
+                />
             </div>
-            <p className="panel-copy">
-              Compare two opponents under the same lock.
-            </p>
-          </div>
-          <div className="compare-picker">
-            <label>
-              Left lane
-              <select
-                value={leftOpponent}
-                onChange={(event) => setLeftOpponent(event.target.value)}
-              >
-                {opponents.map((opponent) => (
-                  <option key={opponent}>{opponent}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Right lane
-              <select
-                value={rightOpponent}
-                onChange={(event) => setRightOpponent(event.target.value)}
-              >
-                {opponents.map((opponent) => (
-                  <option key={opponent}>{opponent}</option>
-                ))}
-              </select>
-            </label>
-            <div className="metric-switcher">
-              {COMPARISON_METRICS.map((metric) => (
-                <button
-                  key={metric.key}
-                  type="button"
-                  className={
-                    comparisonMetric === metric.key
-                      ? "metric-chip metric-chip--active"
-                      : "metric-chip"
-                  }
-                  onClick={() => setComparisonMetric(metric.key)}
-                >
-                  {metric.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
           </div>
         )}
+
+
+
+
+
+
+
 
         {currentPage === "ingest" && (
           <div className="page-section">
         <section className="panel data-panel" id="ingest">
           <div className="panel-heading">
             <div>
-              <SectionTypewriter text="Ingest" />
+              <SectionTypewriter text="Data Loader" />
             </div>
             <p className="panel-copy">
-              Load one match video or import structured data.
+              Initialize the tactical engine. Drop raw broadcast footage or feed structured telemetry to begin semantic processing.
             </p>
           </div>
           <div className="ingest-grid">
@@ -1910,64 +1798,8 @@ function App() {
           </div>
         )}
 
-        {currentPage === "rankings" && (
-          <div className="page-section">
-        <section className="panel desk-panel">
-          <div className="panel-heading">
-            <div>
-              <SectionTypewriter text="Presets and notes" />
-            </div>
-            <p className="panel-copy">
-              Quick presets plus a compact readout of the current state.
-            </p>
-          </div>
-          <div className="preset-grid">
-            {QUICK_PRESETS.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                className={
-                  activePresetId === preset.id
-                    ? "preset-card preset-card--active"
-                    : "preset-card"
-                }
-                onClick={() => applyPreset(preset.id)}
-              >
-                <strong>{preset.label}</strong>
-                <span>{preset.description}</span>
-              </button>
-            ))}
-          </div>
-          <div className="insight-list">
-            {deskInsights.map((insight) => (
-              <article key={insight} className="insight-item">
-                {insight}
-              </article>
-            ))}
-          </div>
-        </section>
-          </div>
-        )}
 
-        {currentPage === "analysis" && (
-          <div className="page-section">
-        <ComparisonBoard
-          comparisonMetric={comparisonMetric}
-          comparisonText={comparisonText}
-          leftLabel={leftOpponent || "Lane A"}
-          rightLabel={rightOpponent || "Lane B"}
-          leftItems={leftComparison}
-          rightItems={rightComparison}
-        />
 
-        <ExportPanel
-          note={exportNote}
-          onCopy={handleCopy}
-          onDownload={handleDownload}
-          copyStatus={copyStatus}
-        />
-          </div>
-        )}
       </main>
     </div>
   );

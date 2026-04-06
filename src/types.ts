@@ -57,6 +57,7 @@ export type Possession = {
   note: string;
   whyItMatters: string;
   path: PitchPoint[];
+  statsbombId?: number;
   videoClipUrl?: string;
   videoPosterUrl?: string;
   fullVideoUrl?: string;
