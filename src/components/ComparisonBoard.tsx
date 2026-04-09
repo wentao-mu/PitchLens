@@ -1,35 +1,32 @@
-import type { ComparisonMetric, RankedPossession } from "../types";
+import type {
+  ComparisonMetric,
+  ComparisonResult,
+  RankedPossession,
+} from "../types";
+import { comparisonMetricLabel, phaseLabel, type Language } from "../lib/i18n";
 import { MiniPitch } from "./MiniPitch";
 
 type ComparisonBoardProps = {
   comparisonMetric: ComparisonMetric;
-  comparisonText: string;
+  comparisonResult: ComparisonResult;
   leftLabel: string;
   rightLabel: string;
   leftItems: RankedPossession[];
   rightItems: RankedPossession[];
+  language: Language;
 };
 
-const METRIC_META: Record<
-  ComparisonMetric,
-  { label: string; formatter: (value: number) => string }
-> = {
-  xThreat: {
-    label: "Average xT",
-    formatter: (value) => value.toFixed(2),
-  },
-  progression: {
-    label: "Average progression",
-    formatter: (value) => `${Math.round(value)}`,
-  },
-  pressure: {
-    label: "Average pressure",
-    formatter: (value) => `${Math.round(value)}`,
-  },
-  actionValue: {
-    label: "Average action value",
-    formatter: (value) => `${Math.round(value)}`,
-  },
+const metricFormatter = (metric: ComparisonMetric, value: number) =>
+  metric === "xThreat" ? value.toFixed(2) : `${Math.round(value)}`;
+
+const deltaFormatter = (
+  format: ComparisonResult["deltas"][number]["format"],
+  value: number,
+) => {
+  if (format === "percent") {
+    return `${Math.round(value * 100)}%`;
+  }
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}`;
 };
 
 const averageMetric = (items: RankedPossession[], metric: ComparisonMetric) =>
@@ -41,30 +38,38 @@ function ComparisonLane({
   label,
   items,
   accent,
+  language,
 }: {
   label: string;
   items: RankedPossession[];
   accent: "amber" | "green";
+  language: Language;
 }) {
   return (
     <div className="comparison-lane">
       <div className="comparison-header">
         <span>{label}</span>
-        <span>{items.length} matched clips</span>
+        <span>
+          {items.length} {language === "zh" ? "个匹配回合" : "matched possessions"}
+        </span>
       </div>
       {items.length === 0 ? (
-        <div className="comparison-empty">No matched possessions in this lane.</div>
+        <div className="comparison-empty">
+          {language === "zh"
+            ? "当前对比组没有匹配回合。"
+            : "No matching possessions for this lane."}
+        </div>
       ) : (
         items.map((item) => (
           <article key={item.id} className="comparison-item">
-            <MiniPitch possession={item} accent={accent} />
+            <MiniPitch possession={item} accent={accent} language={language} />
             <div>
               <h4>{item.title}</h4>
               <p>
-                {item.minute}' | {item.phase} | xT {item.xThreat.toFixed(2)} | AV{" "}
-                {item.actionValue}
+                {item.minute}' | {phaseLabel(item.phase, language)} | xT{" "}
+                {item.xThreat.toFixed(2)} | AV {item.actionValue}
               </p>
-              <p>{item.note}</p>
+              <p>{item.retrievalReasons.map((reason) => reason.label).join(" · ")}</p>
             </div>
           </article>
         ))
@@ -75,13 +80,14 @@ function ComparisonLane({
 
 export function ComparisonBoard({
   comparisonMetric,
-  comparisonText,
+  comparisonResult,
   leftLabel,
   rightLabel,
   leftItems,
   rightItems,
+  language,
 }: ComparisonBoardProps) {
-  const metricMeta = METRIC_META[comparisonMetric];
+  const metricLabel = comparisonMetricLabel(comparisonMetric, language);
   const leftValue = averageMetric(leftItems, comparisonMetric);
   const rightValue = averageMetric(rightItems, comparisonMetric);
   const maxValue = Math.max(leftValue, rightValue, 1);
@@ -91,43 +97,66 @@ export function ComparisonBoard({
     <section className="panel comparison-panel">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">V4 / fair comparison</p>
-          <h2>Matched comparison workspace</h2>
+          <p className="eyebrow">
+            {language === "zh" ? "V4 / 公平对比" : "V4 / Fair comparison"}
+          </p>
+          <h2>
+            {language === "zh"
+              ? "匹配对比工作台"
+              : "Matched comparison workspace"}
+          </h2>
         </div>
-        <p className="panel-copy">{comparisonText}</p>
       </div>
 
       <div className="comparison-metric-strip">
         <article className="comparison-metric-card">
           <span>{leftLabel}</span>
-          <strong>{metricMeta.formatter(leftValue)}</strong>
+          <strong>{metricFormatter(comparisonMetric, leftValue)}</strong>
           <div className="comparison-metric-bar">
             <i style={{ width: `${(leftValue / maxValue) * 100}%` }} />
           </div>
         </article>
         <article className="comparison-metric-card comparison-metric-card--center">
-          <span>{metricMeta.label}</span>
+          <span>{metricLabel}</span>
           <strong>
             {delta === 0
-              ? "Level"
-              : `${delta > 0 ? "+" : ""}${metricMeta.formatter(delta)}`}
+              ? language === "zh"
+                ? "持平"
+                : "Level"
+              : `${delta > 0 ? "+" : ""}${metricFormatter(comparisonMetric, delta)}`}
           </strong>
-          <small>
-            {delta >= 0 ? leftLabel : rightLabel} lead on the selected metric
-          </small>
         </article>
         <article className="comparison-metric-card comparison-metric-card--alt">
           <span>{rightLabel}</span>
-          <strong>{metricMeta.formatter(rightValue)}</strong>
+          <strong>{metricFormatter(comparisonMetric, rightValue)}</strong>
           <div className="comparison-metric-bar">
             <i style={{ width: `${(rightValue / maxValue) * 100}%` }} />
           </div>
         </article>
       </div>
 
+      <div className="comparison-delta-grid">
+        {comparisonResult.deltas.map((item) => (
+          <article key={item.key} className="comparison-delta-card">
+            <span>{item.label}</span>
+            <strong>{deltaFormatter(item.format, item.delta)}</strong>
+          </article>
+        ))}
+      </div>
+
       <div className="comparison-grid">
-        <ComparisonLane label={leftLabel} items={leftItems} accent="amber" />
-        <ComparisonLane label={rightLabel} items={rightItems} accent="green" />
+        <ComparisonLane
+          label={leftLabel}
+          items={leftItems}
+          accent="amber"
+          language={language}
+        />
+        <ComparisonLane
+          label={rightLabel}
+          items={rightItems}
+          accent="green"
+          language={language}
+        />
       </div>
     </section>
   );

@@ -1,236 +1,243 @@
 import { useState } from "react";
 import type { Possession, PitchPoint } from "../types";
+import type { Language } from "../lib/i18n";
 
 type MiniPitchProps = {
   possession: Possession;
   accent?: "amber" | "green";
+  language?: Language;
 };
 
-// Map possession coordinates (0-100 x/y) to vertical SVG viewBox (100 wide x 150 tall)
+const clamp = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(value, max));
+
 // x = pitch depth (0=own goal, 100=opponent goal), y = pitch width (0=left, 100=right)
-const toSvg = (p: PitchPoint) => ({
-  svgX: p.y,          // pitch width → SVG horizontal
-  svgY: 150 - p.x * 1.5,  // pitch depth → SVG vertical (inverted, scaled)
+const toSvg = (point: PitchPoint) => ({
+  svgX: point.y,
+  svgY: 150 - point.x * 1.5,
 });
 
-const seedRand = (n: number) => ((Math.sin(n) * 10000) % 1 + 1) % 1;
+const paletteByAccent = (accent: "amber" | "green") =>
+  accent === "green"
+    ? {
+        line: "#1B8F6B",
+        node: "#1B8F6B",
+        active: "#0F6A4D",
+        fill: "rgba(27, 143, 107, 0.12)",
+      }
+    : {
+        line: "#C67A1A",
+        node: "#C67A1A",
+        active: "#9E5C0F",
+        fill: "rgba(198, 122, 26, 0.12)",
+      };
 
-// Generate procedural defenders spread around the action zone
-const makeDefenders = (path: PitchPoint[], seed: number) => {
-  const cx = path[Math.floor(path.length / 2)]?.x ?? 50;
-  const cy = path[Math.floor(path.length / 2)]?.y ?? 50;
-  return Array.from({ length: 6 }, (_, i) => {
-    const angle = seedRand(seed + i * 17) * Math.PI * 2;
-    const dist = 8 + seedRand(seed + i * 31) * 22;
-    return {
-      x: Math.min(95, Math.max(5, cx + Math.cos(angle) * dist)),
-      y: Math.min(95, Math.max(5, cy + Math.sin(angle) * dist)),
-      label: `D${i + 1}`,
-    };
-  });
+const pointName = (point: PitchPoint, language: Language) =>
+  point.playerName ||
+  point.label ||
+  (language === "zh" ? "未命名球员" : "Unnamed player");
+
+const pointTag = (point: PitchPoint, language: Language) => {
+  const name = pointName(point, language).trim();
+  const parts = name.split(/\s+/).filter(Boolean);
+  const candidate = parts.length > 1 ? parts[parts.length - 1] : parts[0] || name;
+  return candidate.length > 12 ? `${candidate.slice(0, 11)}…` : candidate;
 };
 
-export function MiniPitch({ possession }: MiniPitchProps) {
+export function MiniPitch({
+  possession,
+  accent = "amber",
+  language = "zh",
+}: MiniPitchProps) {
+  const [activeStep, setActiveStep] = useState(0);
   const [hoveredStep, setHoveredStep] = useState<number | null>(null);
-  const [hoveredDefender, setHoveredDefender] = useState<number | null>(null);
 
-  const { path, minute, id } = possession;
-  const defenders = makeDefenders(path, minute * 7 + path.length);
+  const path = possession.path.length
+    ? possession.path
+    : [{ x: 12, y: 50, label: "EV", playerName: language === "zh" ? "事件" : "Event" }];
 
-  // Vision cone from highlighted or first node
-  const focusIdx = hoveredStep ?? 0;
-  const focusPoint = path[focusIdx];
-  const nextPoint = path[focusIdx + 1] ?? path[focusIdx];
-
-  const origin = toSvg(focusPoint);
-  const target = toSvg(nextPoint);
-
-  const angle = Math.atan2(target.svgY - origin.svgY, target.svgX - origin.svgX);
-  const spread = Math.PI / 5;
-  const R = 300;
-
-  const p1x = origin.svgX + Math.cos(angle - spread) * R;
-  const p1y = origin.svgY + Math.sin(angle - spread) * R;
-  const p2x = origin.svgX + Math.cos(angle + spread) * R;
-  const p2y = origin.svgY + Math.sin(angle + spread) * R;
-
-  const coneClipId = `cone-${id}-${focusIdx}`;
-  const conePath = `M ${origin.svgX} ${origin.svgY} L ${p1x} ${p1y} L ${p2x} ${p2y} Z`;
+  const palette = paletteByAccent(accent);
+  const focusIndex = hoveredStep ?? activeStep;
+  const focusPoint = path[focusIndex] ?? path[0];
+  const focusEvent = possession.events[focusIndex] ?? possession.events[possession.events.length - 1];
+  const focusCoords = toSvg(focusPoint);
+  const focusName = pointName(focusPoint, language);
+  const bubbleWidth = clamp(focusName.length * 2.8 + 14, 22, 56);
+  const bubbleX = clamp(focusCoords.svgX - bubbleWidth / 2, 4, 96 - bubbleWidth);
+  const bubbleY = clamp(focusCoords.svgY - 14, 6, 136);
+  const defensiveFrame = (focusEvent?.freezeFrame ?? []).filter((item) => !item.teammate);
 
   return (
     <div className="pitch-panel">
-      {/* SVG Pitch */}
       <svg
         viewBox="0 0 100 150"
         className="pitch-svg"
         aria-label={`Tactical map: ${possession.title}`}
       >
         <defs>
-          <clipPath id={coneClipId}>
-            <path d={conePath} />
-          </clipPath>
-          <radialGradient id={`glow-${id}`} cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#E92727" stopOpacity="0.8" />
-            <stop offset="100%" stopColor="#E92727" stopOpacity="0" />
-          </radialGradient>
-          <filter id={`blur-${id}`}>
-            <feGaussianBlur stdDeviation="0.8" />
-          </filter>
+          <pattern
+            id={`pitch-grid-${possession.id}`}
+            width="100"
+            height="18"
+            patternUnits="userSpaceOnUse"
+          >
+            <rect width="100" height="9" fill="#EEF4EA" />
+            <rect y="9" width="100" height="9" fill="#E7EFE3" />
+          </pattern>
         </defs>
 
-        {/* Pitch background */}
-        <rect x="0" y="0" width="100" height="150" fill="#6B7280" />
+        <rect x="0" y="0" width="100" height="150" fill={`url(#pitch-grid-${possession.id})`} />
+        <rect x="2" y="2" width="96" height="146" rx="2" fill="none" stroke="#B7C5B4" strokeWidth="0.8" />
+        <line x1="2" y1="75" x2="98" y2="75" stroke="#B7C5B4" strokeWidth="0.8" />
+        <circle cx="50" cy="75" r="12" fill="none" stroke="#B7C5B4" strokeWidth="0.8" />
+        <circle cx="50" cy="75" r="0.9" fill="#B7C5B4" />
+        <rect x="22" y="2" width="56" height="22" fill="none" stroke="#B7C5B4" strokeWidth="0.8" />
+        <rect x="36" y="2" width="28" height="8" fill="none" stroke="#B7C5B4" strokeWidth="0.8" />
+        <path d="M 36 24 A 12 12 0 0 0 64 24" fill="none" stroke="#B7C5B4" strokeWidth="0.8" />
+        <circle cx="50" cy="14" r="0.9" fill="#B7C5B4" />
+        <rect x="22" y="126" width="56" height="22" fill="none" stroke="#B7C5B4" strokeWidth="0.8" />
+        <rect x="36" y="140" width="28" height="8" fill="none" stroke="#B7C5B4" strokeWidth="0.8" />
+        <path d="M 36 126 A 12 12 0 0 1 64 126" fill="none" stroke="#B7C5B4" strokeWidth="0.8" />
+        <circle cx="50" cy="134" r="0.9" fill="#B7C5B4" />
 
-        {/* Vision cone (white) */}
-        <path d={conePath} fill="white" opacity="0.9" />
-
-        {/* Ripple rings clipped to cone */}
-        {[10, 20, 30, 40, 55, 70, 90, 110, 130].map((r) => (
-          <circle
-            key={r}
-            cx={origin.svgX}
-            cy={origin.svgY}
-            r={r}
-            fill="none"
-            stroke="rgba(200,200,200,0.5)"
-            strokeWidth="1.5"
-            clipPath={`url(#${coneClipId})`}
-          />
-        ))}
-
-        {/* Pitch lines */}
-        <g stroke="rgba(180,180,180,0.6)" strokeWidth="0.5" fill="none">
-          <rect x="2" y="2" width="96" height="146" />
-          <line x1="2" y1="75" x2="98" y2="75" />
-          <circle cx="50" cy="75" r="12" />
-          <circle cx="50" cy="75" r="0.8" fill="rgba(180,180,180,0.6)" />
-          {/* Top box */}
-          <rect x="22" y="2" width="56" height="22" />
-          <rect x="36" y="2" width="28" height="8" />
-          <path d="M 36 24 A 12 12 0 0 0 64 24" />
-          <circle cx="50" cy="14" r="0.8" fill="rgba(180,180,180,0.6)" />
-          {/* Bottom box */}
-          <rect x="22" y="126" width="56" height="22" />
-          <rect x="36" y="140" width="28" height="8" />
-          <path d="M 36 126 A 12 12 0 0 1 64 126" />
-          <circle cx="50" cy="134" r="0.8" fill="rgba(180,180,180,0.6)" />
-        </g>
-
-        {/* Defenders (blue) */}
-        {defenders.map((def, i) => {
-          const sv = toSvg(def);
-          const isHovered = hoveredDefender === i;
-          return (
-            <g
-              key={`def-${i}`}
-              onMouseEnter={() => setHoveredDefender(i)}
-              onMouseLeave={() => setHoveredDefender(null)}
-              style={{ cursor: "pointer" }}
-            >
-              {isHovered && (
-                <circle cx={sv.svgX} cy={sv.svgY} r="5" fill="rgba(20,65,230,0.2)" />
-              )}
-              <circle
-                cx={sv.svgX}
-                cy={sv.svgY}
-                r={isHovered ? 2.2 : 1.6}
-                fill={isHovered ? "#3B5FFF" : "#1441E6"}
-                style={{ transition: "r 0.15s ease" }}
-              />
-              {isHovered && (
-                <text
-                  x={sv.svgX}
-                  y={sv.svgY - 3.5}
-                  textAnchor="middle"
-                  fontSize="3.5"
-                  fill="white"
-                  fontWeight="600"
-                >
-                  DEF
-                </text>
-              )}
-            </g>
-          );
-        })}
-
-        {/* Pass sequence path (dashed line) */}
         <polyline
-          points={path.map((p) => { const sv = toSvg(p); return `${sv.svgX},${sv.svgY}`; }).join(" ")}
+          points={path.map((point) => {
+            const coords = toSvg(point);
+            return `${coords.svgX},${coords.svgY}`;
+          }).join(" ")}
           fill="none"
-          stroke="rgba(255,255,255,0.35)"
-          strokeWidth="0.8"
-          strokeDasharray="1.5,1.5"
+          stroke={palette.line}
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity="0.95"
         />
 
-        {/* Attacker nodes */}
-        {path.map((point, i) => {
-          const sv = toSvg(point);
-          const isActive = i === (hoveredStep ?? 0);
-          const isHovered = hoveredStep === i;
+        {defensiveFrame.map((defender, index) => {
+          const coords = toSvg({ x: defender.x, y: defender.y, label: `${index}` });
           return (
-            <g
-              key={`atk-${i}`}
-              onMouseEnter={() => setHoveredStep(i)}
-              onMouseLeave={() => setHoveredStep(null)}
-              style={{ cursor: "pointer" }}
-            >
-              {/* Outer glow */}
-              {isActive && (
-                <circle cx={sv.svgX} cy={sv.svgY} r="6" fill={`url(#glow-${id})`} filter={`url(#blur-${id})`} />
-              )}
-              {/* Crosshair for active node */}
-              {isActive && (
-                <>
-                  <rect x={sv.svgX - 3} y={sv.svgY - 3} width="6" height="6" fill="rgba(255,255,255,0.5)" rx="0.5" />
-                  <rect x={sv.svgX - 2} y={sv.svgY - 2} width="4" height="4" fill="none" stroke="#E92727" strokeWidth="0.8" rx="0.3" />
-                </>
-              )}
+            <g key={`${possession.id}-def-${focusIndex}-${index}`} pointerEvents="none">
               <circle
-                cx={sv.svgX}
-                cy={sv.svgY}
-                r={isActive ? 2.2 : 1.4}
-                fill={isActive ? "#FF4444" : "#E92727"}
-                style={{ transition: "r 0.15s ease" }}
+                cx={coords.svgX}
+                cy={coords.svgY}
+                r={defender.keeper ? 2.3 : 2}
+                fill="#F7FAFF"
+                stroke={defender.keeper ? "#1E4F99" : "rgba(43, 92, 184, 0.78)"}
+                strokeWidth={defender.keeper ? 1.1 : 0.8}
               />
-              {/* Step number tooltip */}
-              {isHovered && (
-                <>
-                  <rect x={sv.svgX - 7} y={sv.svgY - 9} width="14" height="6" fill="rgba(0,0,0,0.7)" rx="1" />
-                  <text x={sv.svgX} y={sv.svgY - 5} textAnchor="middle" fontSize="3" fill="white" fontWeight="600">
-                    {point.label} · {i + 1}/{path.length}
-                  </text>
-                </>
-              )}
             </g>
           );
         })}
+
+        {path.map((point, index) => {
+          const coords = toSvg(point);
+          const isFocus = index === focusIndex;
+          const isStart = index === 0;
+          const isEnd = index === path.length - 1;
+          const nameTag = pointTag(point, language);
+          const labelDx = coords.svgX >= 72 ? -3.4 : 3.4;
+          const labelAnchor = coords.svgX >= 72 ? "end" : "start";
+          const labelY = coords.svgY + (index % 2 === 0 ? -3.2 : 4.8);
+          return (
+            <g
+              key={`${possession.id}-point-${index}`}
+              onMouseEnter={() => setHoveredStep(index)}
+              onMouseLeave={() => setHoveredStep(null)}
+              onClick={() => setActiveStep(index)}
+              style={{ cursor: "pointer" }}
+            >
+              {isFocus ? (
+                <circle
+                  cx={coords.svgX}
+                  cy={coords.svgY}
+                  r="4.8"
+                  fill={palette.fill}
+                  stroke={palette.line}
+                  strokeWidth="0.6"
+                />
+              ) : null}
+              <circle
+                cx={coords.svgX}
+                cy={coords.svgY}
+                r={isStart || isEnd ? 2.7 : 2.2}
+                fill={isFocus ? palette.active : palette.node}
+                stroke="#FFFFFF"
+                strokeWidth={isFocus ? 0.9 : 0.7}
+              />
+              {(isStart || isEnd) && !isFocus ? (
+                <circle
+                  cx={coords.svgX}
+                  cy={coords.svgY}
+                  r="4.1"
+                  fill="none"
+                  stroke={palette.node}
+                  strokeWidth="0.5"
+                  opacity="0.45"
+                />
+              ) : null}
+              <text
+                x={coords.svgX + labelDx}
+                y={labelY}
+                textAnchor={labelAnchor}
+                className={isFocus ? "pitch-node-label pitch-node-label--active" : "pitch-node-label"}
+              >
+                {nameTag}
+              </text>
+            </g>
+          );
+        })}
+
+        <g pointerEvents="none">
+          <rect
+            x={bubbleX}
+            y={bubbleY}
+            width={bubbleWidth}
+            height="9.5"
+            rx="2.5"
+            fill="rgba(18, 19, 23, 0.84)"
+          />
+          <text
+            x={bubbleX + bubbleWidth / 2}
+            y={bubbleY + 6.3}
+            textAnchor="middle"
+            fontSize="3.2"
+            fill="#FFFFFF"
+            fontWeight="600"
+          >
+            {focusName}
+          </text>
+        </g>
       </svg>
 
-      {/* Step scrubber below the pitch */}
       <div className="pitch-scrubber">
-        {path.map((point, i) => (
+        {path.map((point, index) => (
           <button
-            key={`step-${i}`}
-            className={`pitch-step ${hoveredStep === i ? "pitch-step--active" : ""}`}
-            onMouseEnter={() => setHoveredStep(i)}
+            key={`${possession.id}-step-${index}`}
+            type="button"
+            className={`pitch-step ${focusIndex === index ? "pitch-step--active" : ""}`}
+            onMouseEnter={() => setHoveredStep(index)}
             onMouseLeave={() => setHoveredStep(null)}
-            onClick={() => setHoveredStep(hoveredStep === i ? null : i)}
-            title={`Step ${i + 1}: ${point.label}`}
+            onClick={() => setActiveStep(index)}
+            title={`${language === "zh" ? "步骤" : "Step"} ${index + 1}: ${pointName(point, language)}`}
           >
-            <span>{i + 1}</span>
-            <small>{point.label}</small>
+            <span>{index + 1}</span>
+            <small>{pointTag(point, language)}</small>
           </button>
         ))}
       </div>
 
-      {/* Hovered step details */}
-      {hoveredStep !== null && (
-        <div className="pitch-tooltip">
-          <strong>Step {hoveredStep + 1} of {path.length}</strong>
-          <span>{path[hoveredStep].label}</span>
-          <small>Zone {Math.round(path[hoveredStep].x)}, {Math.round(path[hoveredStep].y)}</small>
-        </div>
-      )}
+      <div className="pitch-tooltip">
+        <strong>{focusName}</strong>
+        <span>
+          {language === "zh" ? `步骤 ${focusIndex + 1}` : `Step ${focusIndex + 1}`}
+        </span>
+        {focusEvent ? (
+          <span>{focusEvent.type}</span>
+        ) : null}
+        <small>
+          {language === "zh" ? "坐标" : "Coords"} {Math.round(focusPoint.x)}, {Math.round(focusPoint.y)}
+        </small>
+      </div>
     </div>
   );
 }

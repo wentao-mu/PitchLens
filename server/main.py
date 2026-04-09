@@ -5,10 +5,13 @@ import uuid
 from datetime import date
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
+from .assistant import generate_assistant_reply
+from .statsbomb_open_data import import_matches, list_competitions, list_matches
 from .video_analysis import AnalysisOptions, analyze_video, ffmpeg_available
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -35,6 +38,34 @@ app.add_middleware(
 app.mount("/assets", StaticFiles(directory=OUTPUT_DIR), name="assets")
 
 
+class AssistantMessage(BaseModel):
+    role: str
+    content: str
+
+
+class AssistantRequest(BaseModel):
+    question: str
+    conversation: list[AssistantMessage] = Field(default_factory=list)
+    datasetLabel: str
+    analysisTeam: str
+    contextLock: str
+    activeSignal: str
+    comparisonMetricLabel: str
+    comparisonText: str
+    leftOpponent: str
+    rightOpponent: str
+    filteredCount: int
+    teamClipCount: int
+    focusPossession: dict[str, object] | None = None
+    rankedPossessions: list[dict[str, object]] = Field(default_factory=list)
+    videoSummary: dict[str, object] | None = None
+    exportNote: str
+
+
+class StatsBombImportRequest(BaseModel):
+    matchIds: list[int] = Field(default_factory=list)
+
+
 @app.get("/api/health")
 def health() -> dict[str, object]:
     ffmpeg_ready = ffmpeg_available()
@@ -42,6 +73,48 @@ def health() -> dict[str, object]:
         "status": "ok" if ffmpeg_ready else "degraded",
         "ffmpegAvailable": ffmpeg_ready,
     }
+
+
+@app.post("/api/assistant")
+def assistant_endpoint(payload: AssistantRequest) -> dict[str, str]:
+    question = payload.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
+    reply = generate_assistant_reply(payload.model_dump())
+    return reply
+
+
+@app.get("/api/statsbomb/competitions")
+def statsbomb_competitions_endpoint() -> dict[str, object]:
+    try:
+        return {"competitions": list_competitions()}
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.get("/api/statsbomb/matches")
+def statsbomb_matches_endpoint(
+    competition_id: int = Query(..., alias="competitionId"),
+    season_id: int = Query(..., alias="seasonId"),
+) -> dict[str, object]:
+    try:
+        return {
+            "matches": list_matches(
+                competition_id=competition_id,
+                season_id=season_id,
+            )
+        }
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.post("/api/statsbomb/import")
+def statsbomb_import_endpoint(payload: StatsBombImportRequest) -> dict[str, object]:
+    try:
+        return import_matches(payload.matchIds)
+    except RuntimeError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.post("/api/analyze-video")

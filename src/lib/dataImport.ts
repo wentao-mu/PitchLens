@@ -1,12 +1,18 @@
 import { TARGET_TEAM } from "../data/sampleData";
+import { normalizePossessionRecord, normalizePossessionSet } from "./analytics";
 import type {
+  Event,
+  FreezeFramePoint,
   GameState,
   Phase,
+  PitchPoint,
   Possession,
+  StartZone,
   TacticalSignal,
   TransitionType,
   Zone,
 } from "../types";
+import { TACTICAL_SIGNALS } from "../types";
 
 type LooseRecord = Record<string, unknown>;
 
@@ -20,14 +26,6 @@ export type ImportedDataset = {
   possessions: Possession[];
   availableTeams: string[];
 };
-
-const SIGNALS: TacticalSignal[] = [
-  "Left overload release",
-  "Central lane break",
-  "Press escape chain",
-  "Wide switch cutback",
-  "Counter-press regain",
-];
 
 const CSV_FIELDS: Array<keyof Possession> = [
   "id",
@@ -43,6 +41,7 @@ const CSV_FIELDS: Array<keyof Possession> = [
   "durationSec",
   "gameState",
   "phase",
+  "startZone",
   "zone",
   "formation",
   "transitionType",
@@ -59,6 +58,7 @@ const CSV_FIELDS: Array<keyof Possession> = [
   "note",
   "whyItMatters",
   "path",
+  "events",
 ];
 
 const signalTitle = (signal: TacticalSignal) => {
@@ -67,6 +67,9 @@ const signalTitle = (signal: TacticalSignal) => {
   }
   if (signal === "Central lane break") {
     return "Central lane break attacks the heart of the block";
+  }
+  if (signal === "Right lane release") {
+    return "Right-lane release provides the outlet under pressure";
   }
   if (signal === "Press escape chain") {
     return "Press escape chain frees the next pass";
@@ -112,6 +115,18 @@ const parseStringArray = (value: unknown) => {
   return [];
 };
 
+const parseJsonValue = (value: unknown) => {
+  if (typeof value !== "string" || !value.trim()) {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+};
+
 const normalizeSignalScores = (
   scores: unknown,
   primarySignal: TacticalSignal,
@@ -129,13 +144,14 @@ const normalizeSignalScores = (
   const base: Record<TacticalSignal, number> = {
     "Left overload release": 0.14,
     "Central lane break": 0.14,
+    "Right lane release": 0.14,
     "Press escape chain": 0.14,
     "Wide switch cutback": 0.14,
     "Counter-press regain": 0.14,
   };
 
   if (scores && typeof scores === "object" && !Array.isArray(scores)) {
-    SIGNALS.forEach((signal) => {
+    TACTICAL_SIGNALS.forEach((signal) => {
       const scoreValue = parseNumber((scores as LooseRecord)[signal], base[signal]);
       base[signal] = clamp(scoreValue, 0, 1);
     });
@@ -152,6 +168,9 @@ const normalizeSignalScores = (
   }
   if (derived.zone === "Central lane" && derived.progression >= 70) {
     base["Central lane break"] = Math.max(base["Central lane break"], 0.86);
+  }
+  if (derived.zone === "Right lane" && derived.progression >= 62) {
+    base["Right lane release"] = Math.max(base["Right lane release"], 0.84);
   }
   if (derived.phase === "Press resistance" || derived.pressure >= 74) {
     base["Press escape chain"] = Math.max(base["Press escape chain"], 0.84);
@@ -177,6 +196,16 @@ const inferZone = (y: number): Zone => {
     return "Right lane";
   }
   return "Central lane";
+};
+
+const inferStartZone = (x: number): StartZone => {
+  if (x < 33.34) {
+    return "Defensive third";
+  }
+  if (x < 66.67) {
+    return "Middle third";
+  }
+  return "Attacking third";
 };
 
 const inferPhase = ({
@@ -256,7 +285,9 @@ const inferSignalsFromShape = (context: {
     [],
     context,
   );
-  const ordered = [...SIGNALS].sort((left, right) => scores[right] - scores[left]);
+  const ordered = [...TACTICAL_SIGNALS].sort(
+    (left, right) => scores[right] - scores[left],
+  );
   return {
     primarySignal: ordered[0],
     secondarySignals: ordered.slice(1, 3),
@@ -268,7 +299,7 @@ const normalizePath = (value: unknown) => {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value
+  const normalized: Array<PitchPoint | null> = value
     .map((item) => {
       if (!item || typeof item !== "object") {
         return null;
@@ -278,12 +309,55 @@ const normalizePath = (value: unknown) => {
         x: clamp(parseNumber(row.x, 0), 0, 100),
         y: clamp(parseNumber(row.y, 0), 0, 100),
         label: String(row.label ?? ""),
+        playerName:
+          typeof row.playerName === "string" ? row.playerName : undefined,
       };
-    })
-    .filter(
-      (item): item is { x: number; y: number; label: string } =>
-        item !== null && Boolean(item.label),
-    );
+    });
+
+  return normalized.filter(
+    (item): item is PitchPoint => item !== null && Boolean(item.label),
+  );
+};
+
+const normalizeEvents = (
+  value: unknown,
+  possessionId: string,
+  team: string,
+  opponent: string,
+  minute: number,
+): Event[] => {
+  const parsed = parseJsonValue(value);
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  const events = parsed.map((item, index) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        return null;
+      }
+
+      const row = item as LooseRecord;
+      return {
+        id: String(row.id ?? `${possessionId}-event-${index + 1}`),
+        possessionId,
+        team,
+        opponent,
+        minute: clamp(parseNumber(row.minute, minute), 0, 120),
+        second: clamp(parseNumber(row.second, index * 4), 0, 600),
+        type: String(row.type ?? "Pass") as Event["type"],
+        player: String(row.player ?? row.label ?? `EV${index + 1}`),
+        startX: clamp(parseNumber(row.startX ?? row.x, 0), 0, 100),
+        startY: clamp(parseNumber(row.startY ?? row.y, 40), 0, 100),
+        endX: clamp(parseNumber(row.endX ?? row.x, 0), 0, 100),
+        endY: clamp(parseNumber(row.endY ?? row.y, 40), 0, 100),
+        underPressure: Boolean(row.underPressure),
+        outcome: typeof row.outcome === "string" ? row.outcome : undefined,
+        note: typeof row.note === "string" ? row.note : undefined,
+        freezeFrame: normalizeFreezeFrame(parseJsonValue(row.freezeFrame)),
+      };
+    });
+
+  return events.filter(Boolean) as Event[];
 };
 
 const normalizePossession = (
@@ -294,11 +368,17 @@ const normalizePossession = (
   const team = String(row.team ?? fallbackTeam ?? TARGET_TEAM);
   const opponent = String(row.opponent ?? "Unknown opponent");
   const minute = clamp(parseNumber(row.minute, index + 1), 0, 120);
+  const possessionId = String(
+    row.id ?? `${slugify(team)}-${slugify(opponent)}-${minute}-${index}`,
+  );
   const progression = clamp(parseNumber(row.progression, 55), 0, 100);
   const pressure = clamp(parseNumber(row.pressure, 55), 0, 100);
   const actionValue = clamp(parseNumber(row.actionValue, 60), 0, 100);
   const xThreat = clamp(parseNumber(row.xThreat, 0.18), 0, 1);
   const zone = (row.zone as Zone) || inferZone(parseNumber(row.zoneY, 40));
+  const startZone =
+    (row.startZone as StartZone) ||
+    inferStartZone(parseNumber(row.startX, 16));
   const transitionType = (row.transitionType as TransitionType) || "Open play";
   const phase =
     (row.phase as Phase) ||
@@ -337,16 +417,23 @@ const normalizePossession = (
   );
 
   const path =
-    normalizePath(row.path) ||
+    normalizePath(parseJsonValue(row.path)) ||
     [
       { x: 12, y: zone === "Left lane" ? 70 : zone === "Right lane" ? 20 : 44, label: "1" },
       { x: 38, y: zone === "Left lane" ? 62 : zone === "Right lane" ? 28 : 48, label: "2" },
       { x: 66, y: zone === "Left lane" ? 52 : zone === "Right lane" ? 34 : 42, label: "3" },
       { x: clamp(38 + progression * 0.45, 0, 92), y: zone === "Left lane" ? 44 : zone === "Right lane" ? 30 : 40, label: "4" },
     ];
+  const events = normalizeEvents(
+    row.events,
+    possessionId,
+    team,
+    opponent,
+    minute,
+  );
 
-  return {
-    id: String(row.id ?? `${slugify(team)}-${slugify(opponent)}-${minute}-${index}`),
+  return normalizePossessionRecord({
+    id: possessionId,
     team,
     title: String(row.title ?? signalTitle(primarySignal)),
     matchId: String(row.matchId ?? `${slugify(team)}-${slugify(opponent)}`),
@@ -360,6 +447,7 @@ const normalizePossession = (
     gameState:
       (row.gameState as GameState) || inferGameState(String(row.scoreline ?? "0-0")),
     phase,
+    startZone,
     zone,
     formation: String(row.formation ?? "Unknown shape"),
     transitionType,
@@ -379,15 +467,15 @@ const normalizePossession = (
       row.whyItMatters ??
         `This possession ranks highly because it combines ${primarySignal.toLowerCase()} with replayable field gain.`,
     ),
-    path:
-      path.length > 0
-        ? path
-        : [
-            { x: 12, y: 72, label: "1" },
-            { x: 38, y: 54, label: "2" },
-            { x: 72, y: 40, label: "3" },
-          ],
-  };
+    path: path.length > 0
+      ? path
+      : [
+          { x: 12, y: 72, label: "1" },
+          { x: 38, y: 54, label: "2" },
+          { x: 72, y: 40, label: "3" },
+        ],
+    events,
+  });
 };
 
 const parseCsv = (text: string) => {
@@ -485,13 +573,77 @@ const normalizePoint = (point: unknown) => {
   };
 };
 
-const convertStatsBombEventsFile = (file: ImportedFile): Possession[] => {
-  const raw = JSON.parse(file.text) as unknown;
-  if (!Array.isArray(raw)) {
+const normalizeFreezeFrame = (value: unknown): FreezeFramePoint[] => {
+  if (!Array.isArray(value)) {
     return [];
   }
 
-  const events = raw.filter(
+  return value
+    .filter(
+      (item): item is LooseRecord =>
+        Boolean(item) && typeof item === "object" && !Array.isArray(item),
+    )
+    .map((item) => {
+      const location =
+        normalizePoint(item.location) ??
+        (Number.isFinite(parseNumber(item.x, NaN)) &&
+        Number.isFinite(parseNumber(item.y, NaN))
+          ? {
+              x: clamp(parseNumber(item.x, 0), 0, 100),
+              y: clamp(parseNumber(item.y, 0), 0, 100),
+            }
+          : null);
+      if (!location) {
+        return null;
+      }
+      return {
+        x: location.x,
+        y: location.y,
+        teammate: Boolean(item.teammate),
+        actor: Boolean(item.actor),
+        keeper: Boolean(item.keeper),
+      } satisfies FreezeFramePoint;
+    })
+    .filter((item): item is FreezeFramePoint => item !== null);
+};
+
+const convertStatsBombEventsFile = (file: ImportedFile): Possession[] => {
+  const raw = JSON.parse(file.text) as unknown;
+  const bundle =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as LooseRecord)
+      : null;
+  const eventPayload = Array.isArray(raw)
+    ? raw
+    : Array.isArray(bundle?.events)
+      ? bundle.events
+      : null;
+
+  if (!Array.isArray(eventPayload)) {
+    return [];
+  }
+
+  const freezeFrameByEventId = new Map<string, FreezeFramePoint[]>();
+  if (Array.isArray(bundle?.threeSixty)) {
+    bundle.threeSixty
+      .filter(
+        (item): item is LooseRecord =>
+          Boolean(item) && typeof item === "object" && !Array.isArray(item),
+      )
+      .forEach((item) => {
+        const eventUuid =
+          typeof item.event_uuid === "string" ? item.event_uuid : undefined;
+        if (!eventUuid) {
+          return;
+        }
+        const freezeFrame = normalizeFreezeFrame(item.freeze_frame);
+        if (freezeFrame.length) {
+          freezeFrameByEventId.set(eventUuid, freezeFrame);
+        }
+      });
+  }
+
+  const events = eventPayload.filter(
     (item): item is LooseRecord =>
       Boolean(item) && typeof item === "object" && !Array.isArray(item),
   );
@@ -566,11 +718,21 @@ const convertStatsBombEventsFile = (file: ImportedFile): Possession[] => {
           typeof (event.player as LooseRecord | undefined)?.name === "string"
             ? shortName((event.player as LooseRecord).name as string)
             : "EV";
-        const pointList: Array<{ x: number; y: number; label: string }> = [];
+        const pointList: Array<{
+          x: number;
+          y: number;
+          label: string;
+          playerName?: string;
+        }> = [];
+        const actorName =
+          typeof (event.player as LooseRecord | undefined)?.name === "string"
+            ? ((event.player as LooseRecord).name as string)
+            : undefined;
         if (location) {
           pointList.push({
             ...location,
             label: eventLabel,
+            playerName: actorName,
           });
         }
         const passBlock = event.pass as LooseRecord | undefined;
@@ -581,6 +743,8 @@ const convertStatsBombEventsFile = (file: ImportedFile): Possession[] => {
             ...endLocation,
             label:
               typeof recipientName === "string" ? shortName(recipientName) : eventLabel,
+            playerName:
+              typeof recipientName === "string" ? recipientName : actorName,
           });
         }
         return pointList;
@@ -596,6 +760,7 @@ const convertStatsBombEventsFile = (file: ImportedFile): Possession[] => {
         dedupedPoints.reduce((sum, point) => sum + point.y, 0) /
           Math.max(1, dedupedPoints.length) || 40;
       const startX = dedupedPoints[0]?.x ?? 40;
+      const startZone = inferStartZone(startX);
       const furthestX = dedupedPoints.reduce(
         (maxX, point) => Math.max(maxX, point.x),
         startX,
@@ -658,6 +823,56 @@ const convertStatsBombEventsFile = (file: ImportedFile): Possession[] => {
             .filter((name): name is string => typeof name === "string"),
         ),
       ).slice(0, 5);
+      const normalizedEvents: Event[] = ordered.map((event, eventIndex) => {
+        const location = normalizePoint(event.location);
+        const passBlock = event.pass as LooseRecord | undefined;
+        const endLocation =
+          normalizePoint(passBlock?.end_location) ??
+          location ??
+          {
+            x: startX,
+            y: avgY,
+          };
+        const typeName = String(
+          ((event.type as LooseRecord | undefined)?.name as string) ?? "Pass",
+        );
+        const sourceEventId =
+          typeof event.id === "string" ? event.id : undefined;
+
+        return {
+          id: `${slugify(team)}-${matchId}-${index}-event-${eventIndex + 1}`,
+          possessionId: `${slugify(team)}-${matchId}-${index}`,
+          team,
+          opponent,
+          minute: clamp(parseNumber(event.minute, minute), 0, 120),
+          second: clamp(parseNumber(event.second, eventIndex * 4), 0, 600),
+          type:
+            typeName === "Ball Recovery"
+              ? "Recovery"
+              : typeName === "Dribble"
+                ? "Dribble"
+                : typeName === "Carry"
+                  ? "Carry"
+                  : typeName === "Shot"
+                    ? "Shot"
+                    : typeName === "Clearance"
+                      ? "Clearance"
+                      : "Pass",
+          player:
+            typeof (event.player as LooseRecord | undefined)?.name === "string"
+              ? ((event.player as LooseRecord).name as string)
+              : "Unknown player",
+          startX: location?.x ?? startX,
+          startY: location?.y ?? avgY,
+          endX: endLocation.x,
+          endY: endLocation.y,
+          underPressure: Boolean(event.under_pressure),
+          outcome: typeName,
+          freezeFrame: sourceEventId
+            ? freezeFrameByEventId.get(sourceEventId)
+            : undefined,
+        };
+      });
 
       return normalizePossession(
         {
@@ -674,6 +889,7 @@ const convertStatsBombEventsFile = (file: ImportedFile): Possession[] => {
           durationSec,
           gameState: "Drawing",
           phase,
+          startZone,
           zone,
           formation: "Unknown shape",
           transitionType,
@@ -695,6 +911,7 @@ const convertStatsBombEventsFile = (file: ImportedFile): Possession[] => {
           note: `${team} build the move through ${zone.toLowerCase()} with ${passEvents.length} passes under ${playPatternName.toLowerCase()}.`,
           whyItMatters: `Derived from a real StatsBomb event chain. The possession is grouped from live events rather than handcrafted samples.`,
           path: dedupedPoints.slice(0, 6),
+          events: normalizedEvents,
         },
         index,
         team,
@@ -736,6 +953,13 @@ const isStatsBombEventsJson = (value: unknown) =>
   "possession" in (value[0] as LooseRecord) &&
   "type" in (value[0] as LooseRecord);
 
+const isStatsBombBundleJson = (value: unknown) =>
+  Boolean(value) &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  Array.isArray((value as LooseRecord).events) &&
+  isStatsBombEventsJson((value as LooseRecord).events);
+
 export const parseImportedDataset = (
   files: ImportedFile[],
 ): ImportedDataset => {
@@ -752,7 +976,7 @@ export const parseImportedDataset = (
     if (extension === "json") {
       const parsed = JSON.parse(file.text) as unknown;
 
-      if (isStatsBombEventsJson(parsed)) {
+      if (isStatsBombEventsJson(parsed) || isStatsBombBundleJson(parsed)) {
         possessions.push(...convertStatsBombEventsFile(file));
         return;
       }
@@ -777,7 +1001,7 @@ export const parseImportedDataset = (
       files.length === 1
         ? files[0].name
         : `${files.length} imported match files`,
-    possessions,
+    possessions: normalizePossessionSet(possessions),
     availableTeams,
   };
 };
@@ -799,7 +1023,7 @@ export const serializePossessionsToCsv = (possessions: Possession[]) => {
       if (field === "players" || field === "secondarySignals") {
         return serializeCsvCell((value as string[]).join("|"));
       }
-      if (field === "signalScores" || field === "path") {
+      if (field === "signalScores" || field === "path" || field === "events") {
         return serializeCsvCell(JSON.stringify(value));
       }
       return serializeCsvCell(value);

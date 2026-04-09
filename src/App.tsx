@@ -5,34 +5,61 @@ import {
   useState,
   useTransition,
 } from "react";
+import { AssistantPanel } from "./components/AssistantPanel";
 import { ComparisonBoard } from "./components/ComparisonBoard";
 import { ExportPanel } from "./components/ExportPanel";
 import { MiniPitch } from "./components/MiniPitch";
 import { allPossessions, TARGET_TEAM } from "./data/sampleData";
 import {
+  buildContextLockLabel,
   buildComparisonSet,
   buildExportNote,
   buildMinuteRangeLabel,
   buildSignalSummaries,
   clampMinuteRange,
-  defaultFilters,
+  comparePossessionGroups,
+  computeSummaryMetrics,
+  defaultScenarioFilters,
   filterPossessions,
   getActionValueBuckets,
+  getAvailableStartZones,
   getFormationTendencies,
+  normalizePossessionSet,
   rankRepresentativePossessions,
-  summarizeComparison,
   timeWindowToRange,
 } from "./lib/analytics";
+import { askAssistant } from "./lib/assistantApi";
+import {
+  getStatsBombCompetitions,
+  getStatsBombMatches,
+  importStatsBombMatches,
+} from "./lib/openDataApi";
 import {
   parseImportedDataset,
   serializePossessionsToCsv,
 } from "./lib/dataImport";
+import {
+  comparisonMetricLabel,
+  DEFAULT_DATASET_LABEL,
+  gameStateLabel,
+  phaseLabel,
+  signalLabel,
+  timeWindowLabel,
+  transitionLabel,
+  UI_TEXT,
+  zoneLabel,
+  type Language,
+} from "./lib/i18n";
 import { analyzeVideoFile, getVideoEngineHealth } from "./lib/videoApi";
 import type {
+  AssistantMessage,
   ComparisonMetric,
   ContextFilters,
   MinuteRange,
   Possession,
+  StartZone,
+  StatsBombCompetition,
+  StatsBombMatch,
   TacticalSignal,
   TimeWindow,
   VideoAnalysisResult,
@@ -41,75 +68,65 @@ import type {
 } from "./types";
 
 const HEADER_CHANNELS = [
-  { label: "Overview", id: "match-centre" },
-  { label: "Data Loader", id: "ingest" },
-  { label: "Filters", id: "context-lock" },
-  { label: "Scenarios", id: "rankings" },
-  { label: "Deep Dive", id: "analysis" },
+  { id: "match-centre" },
+  { id: "ingest" },
+  { id: "context-lock" },
+  { id: "rankings" },
+  { id: "analysis" },
+] as const;
+
+const COMPARISON_METRICS: ComparisonMetric[] = [
+  "xThreat",
+  "progression",
+  "pressure",
+  "actionValue",
 ];
 
-const COMPARISON_METRICS: Array<{
-  key: ComparisonMetric;
-  label: string;
-}> = [
-    { key: "xThreat", label: "xThreat" },
-    { key: "progression", label: "Progression" },
-    { key: "pressure", label: "Pressure" },
-    { key: "actionValue", label: "Action value" },
-  ];
-
-const QUICK_PRESETS: Array<{
+const QUICK_PRESET_DEFS: Array<{
   id: string;
-  label: string;
-  description: string;
   filters: ContextFilters;
   signal: TacticalSignal;
 }> = [
     {
-      id: "overview",
-      label: "Open overview",
-      description: "Review every detected moment before narrowing the lock.",
-      filters: defaultFilters,
+      id: "mvp-build-up",
+      filters: defaultScenarioFilters,
       signal: "Left overload release",
     },
     {
       id: "left-build",
-      label: "Build-up left",
-      description: "Settled first-phase build-up through the left lane.",
       filters: {
-        ...defaultFilters,
-        phase: "Build-up",
+        ...defaultScenarioFilters,
         zone: "Left lane",
       },
       signal: "Left overload release",
     },
     {
       id: "press-escape",
-      label: "Press escape",
-      description: "High-pressure exits against the first line.",
       filters: {
-        ...defaultFilters,
+        ...defaultScenarioFilters,
         phase: "Press resistance",
       },
       signal: "Press escape chain",
     },
     {
-      id: "chasing-central",
-      label: "Central punch",
-      description: "Direct central access and regains.",
+      id: "right-build",
       filters: {
-        ...defaultFilters,
+        ...defaultScenarioFilters,
+        zone: "Right lane",
+      },
+      signal: "Right lane release",
+    },
+    {
+      id: "chasing-central",
+      filters: {
+        ...defaultScenarioFilters,
         zone: "Central lane",
       },
       signal: "Central lane break",
     },
   ];
 
-const FOCUS_VIEWS = [
-  { id: "overview", label: "Overview" },
-  { id: "sequence", label: "Sequence" },
-  { id: "context", label: "Context" },
-] as const;
+const FOCUS_VIEW_IDS = ["overview", "sequence", "context"] as const;
 
 const DEFAULT_VIDEO_INPUT: VideoIngestInput = {
   teamName: "Arsenal WFC",
@@ -123,14 +140,6 @@ const DEFAULT_VIDEO_INPUT: VideoIngestInput = {
 
 const VIDEO_EXTENSIONS = [".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"];
 const DATA_EXTENSIONS = [".csv", ".json"];
-
-const formatContextLock = (filters: ContextFilters) =>
-  [
-    filters.gameState === "All states" ? "All states" : filters.gameState,
-    filters.phase === "All phases" ? "All phases" : filters.phase,
-    filters.zone === "All zones" ? "All zones" : filters.zone,
-    buildMinuteRangeLabel(filters.minuteRange),
-  ].join(" / ");
 
 const metricValue = (metric: ComparisonMetric, values: number[]) =>
   values.length
@@ -146,45 +155,78 @@ const formatClock = (seconds: number) => {
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 };
 
+const buildMessageId = () =>
+  `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+const buildAssistantWelcome = (
+  signal: TacticalSignal,
+  language: Language,
+): AssistantMessage => ({
+  id: buildMessageId(),
+  role: "assistant",
+  content:
+    language === "zh"
+      ? `可以直接问我当前聚焦片段、对手对比，或者在当前上下文下如何围绕${signalLabel(signal, language)}给出战术建议。`
+      : `Ask about the current focus clip, the opponent comparison, or how to coach ${signalLabel(signal, language)} under the active lock.`,
+  meta: UI_TEXT[language].assistantStatusContext,
+});
+
 const fileMatches = (file: File, extensions: string[]) => {
   const lowerName = file.name.toLowerCase();
   return extensions.some((extension) => lowerName.endsWith(extension));
 };
 
-function Typewriter({ text }: { text: string }) {
-  const [displayed, setDisplayed] = useState("");
-  const [inView, setInView] = useState(false);
-  const ref = useRef<HTMLHeadingElement>(null);
+const buildPresetTags = ({
+  signal,
+  filters,
+  language,
+}: {
+  signal: TacticalSignal;
+  filters: ContextFilters;
+  language: Language;
+}) => {
+  const tags: string[] = [signalLabel(signal, language)];
 
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) setInView(true);
-      },
-      { threshold: 0.1 }
-    );
-    if (ref.current) observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, []);
+  if (filters.phase !== "All phases") {
+    tags.push(phaseLabel(filters.phase, language));
+  }
 
-  useEffect(() => {
-    if (!inView) return;
-    let i = 0;
-    setDisplayed("");
-    const timer = setInterval(() => {
-      setDisplayed(text.slice(0, i + 1));
-      i++;
-      if (i === text.length) clearInterval(timer);
-    }, 45);
-    return () => clearInterval(timer);
-  }, [text, inView]);
+  if (filters.startZone !== "All start zones") {
+    tags.push(startZoneLabel(filters.startZone, language));
+  }
 
-  return (
-    <h1 className="antigravity-hero-text" ref={ref}>
-      {displayed}<span className="blinking-cursor">|</span>
-    </h1>
-  );
-}
+  if (filters.zone !== "All zones") {
+    tags.push(zoneLabel(filters.zone, language));
+  }
+
+  if (filters.gameState !== "All states") {
+    tags.push(gameStateLabel(filters.gameState, language));
+  }
+
+  return tags;
+};
+
+const startZoneLabel = (
+  startZone: StartZone | "All start zones",
+  language: Language,
+) => {
+  if (language === "zh") {
+    if (startZone === "All start zones") {
+      return "全部起始区域";
+    }
+    if (startZone === "Defensive third") {
+      return "后场三区";
+    }
+    if (startZone === "Middle third") {
+      return "中场三区";
+    }
+    return "前场三区";
+  }
+
+  return startZone === "All start zones" ? "All start zones" : startZone;
+};
+
+const percentLabel = (value: number) => `${Math.round(value * 100)}%`;
 
 function SectionTypewriter({ text }: { text: string }) {
   const [displayed, setDisplayed] = useState("");
@@ -222,11 +264,15 @@ function SectionTypewriter({ text }: { text: string }) {
 }
 
 function App() {
+  const [language, setLanguage] = useState<Language>("zh");
+  const ui = UI_TEXT[language];
   const [sourcePossessions, setSourcePossessions] =
     useState<Possession[]>(allPossessions);
-  const [datasetLabel, setDatasetLabel] = useState("StatsBomb Open Data (UCL 2023/24)");
+  const [datasetLabel, setDatasetLabel] = useState<string>(
+    DEFAULT_DATASET_LABEL.zh,
+  );
   const [analysisTeam, setAnalysisTeam] = useState(TARGET_TEAM);
-  const [filters, setFilters] = useState<ContextFilters>(defaultFilters);
+  const [filters, setFilters] = useState<ContextFilters>(defaultScenarioFilters);
   const [activeSignal, setActiveSignal] = useState<TacticalSignal>(
     "Left overload release",
   );
@@ -236,24 +282,30 @@ function App() {
   const [rightOpponent, setRightOpponent] = useState<string>("");
   const [comparisonMetric, setComparisonMetric] =
     useState<ComparisonMetric>("xThreat");
-  const [activePresetId, setActivePresetId] = useState<string>("overview");
+  const [activePresetId, setActivePresetId] = useState<string>("mvp-build-up");
   const [focusView, setFocusView] =
-    useState<(typeof FOCUS_VIEWS)[number]["id"]>("overview");
+    useState<(typeof FOCUS_VIEW_IDS)[number]>("overview");
   const [copyStatus, setCopyStatus] = useState("");
+  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>(
+    () => [buildAssistantWelcome("Left overload release", "zh")],
+  );
+  const [assistantDraft, setAssistantDraft] = useState("");
+  const [assistantStatusLabel, setAssistantStatusLabel] = useState<string>(
+    ui.assistantStatusContext,
+  );
   const [sourceMode, setSourceMode] = useState<"sample" | "events" | "video">(
     "sample",
   );
   const [videoSummary, setVideoSummary] =
     useState<VideoAnalysisSummary | null>(null);
-  const [ingestStatus, setIngestStatus] = useState(
-    "Sample dataset loaded. Video ingest is available when the local API is running.",
-  );
+  const [ingestStatus, setIngestStatus] = useState<string>(ui.statusDefault);
   const [ingestError, setIngestError] = useState("");
   const [engineStatus, setEngineStatus] = useState<
     "checking" | "ready" | "offline"
   >("checking");
   const [isDragActive, setIsDragActive] = useState(false);
   const [isVideoAnalyzing, setIsVideoAnalyzing] = useState(false);
+  const [isAssistantLoading, setIsAssistantLoading] = useState(false);
   const [videoInput, setVideoInput] =
     useState<VideoIngestInput>(DEFAULT_VIDEO_INPUT);
   const [playerMode, setPlayerMode] = useState<"clip" | "full">("clip");
@@ -261,6 +313,14 @@ function App() {
   const [videoProgress, setVideoProgress] = useState(0);
   const [isMediaMode, setIsMediaMode] = useState<"pitch" | "video">("pitch");
   const [currentPage, setCurrentPage] = useState<string>("match-centre");
+  const [statsBombCompetitions, setStatsBombCompetitions] = useState<
+    StatsBombCompetition[]
+  >([]);
+  const [selectedCompetitionKey, setSelectedCompetitionKey] = useState("");
+  const [statsBombMatches, setStatsBombMatches] = useState<StatsBombMatch[]>([]);
+  const [selectedMatchIds, setSelectedMatchIds] = useState<number[]>([]);
+  const [statsBombMatchQuery, setStatsBombMatchQuery] = useState("");
+  const [isStatsBombLoading, setIsStatsBombLoading] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const structuredInputRef = useRef<HTMLInputElement | null>(null);
@@ -276,6 +336,139 @@ function App() {
   const opponents = Array.from(
     new Set(teamPossessions.map((possession) => possession.opponent)),
   ).sort();
+  const headerChannels = [
+    { label: language === "zh" ? "总览" : "Overview", id: "match-centre" },
+    { label: ui.loaderLabel, id: "ingest" },
+    { label: ui.filtersLabel, id: "context-lock" },
+    { label: ui.scenariosLabel, id: "rankings" },
+    { label: ui.deepDiveLabel, id: "analysis" },
+  ];
+  const comparisonMetricOptions = COMPARISON_METRICS.map((key) => ({
+    key,
+    label: comparisonMetricLabel(key, language),
+  }));
+  const selectedCompetition = statsBombCompetitions.find(
+    (competition) => competition.key === selectedCompetitionKey,
+  );
+  const filteredStatsBombMatches = statsBombMatches.filter((match) => {
+    const query = statsBombMatchQuery.trim().toLowerCase();
+    if (!query) {
+      return true;
+    }
+    return [
+      match.label,
+      match.homeTeam,
+      match.awayTeam,
+      match.competitionStage,
+      match.scoreline,
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
+  });
+  const quickPresets = QUICK_PRESET_DEFS.map((preset) => {
+    const copy =
+      preset.id === "mvp-build-up"
+        ? {
+            label: language === "zh" ? "MVP 出球场景" : "MVP build-up lock",
+            description:
+              language === "zh"
+                ? "比分持平、前 30 分钟、后场三区发起的默认分析场景。"
+                : "Default tied-score, first-30, defensive-third build-up scenario.",
+          }
+        : preset.id === "left-build"
+          ? {
+              label: language === "zh" ? "左路出球" : "Build-up left",
+              description:
+                language === "zh"
+                  ? "聚焦左路的一阶段组织和稳定推进。"
+                  : "Settled first-phase build-up through the left lane.",
+            }
+          : preset.id === "right-build"
+            ? {
+                label: language === "zh" ? "右路出球" : "Build-up right",
+                description:
+                  language === "zh"
+                    ? "聚焦右路释放和受压后的边路出口。"
+                    : "Right-lane exits and releases under the same lock.",
+              }
+          : preset.id === "press-escape"
+            ? {
+                label: language === "zh" ? "摆脱压迫" : "Press escape",
+                description:
+                  language === "zh"
+                    ? "关注在高压下穿越第一线的处理方式。"
+                    : "High-pressure exits against the first line.",
+              }
+            : {
+                label: language === "zh" ? "中路直击" : "Central punch",
+                description:
+                  language === "zh"
+                    ? "聚焦中路直接推进和反抢后的再进入。"
+                    : "Direct central access and regains.",
+              };
+    return { ...preset, ...copy };
+  });
+  const focusViews = FOCUS_VIEW_IDS.map((id) => ({
+    id,
+    label:
+      id === "overview"
+        ? language === "zh"
+          ? "概览"
+          : "Overview"
+        : id === "sequence"
+          ? language === "zh"
+            ? "序列"
+            : "Sequence"
+          : language === "zh"
+            ? "上下文"
+            : "Context",
+  }));
+
+  useEffect(() => {
+    if (sourceMode === "sample") {
+      setDatasetLabel(DEFAULT_DATASET_LABEL[language]);
+      setIngestStatus(UI_TEXT[language].statusDefault);
+    }
+  }, [language, sourceMode]);
+
+  useEffect(() => {
+    const builtInAssistantLabels = new Set<string>([
+      UI_TEXT.en.assistantStatusContext,
+      UI_TEXT.zh.assistantStatusContext,
+      UI_TEXT.en.assistantStatusLocal,
+      UI_TEXT.zh.assistantStatusLocal,
+      UI_TEXT.en.assistantStatusUnavailable,
+      UI_TEXT.zh.assistantStatusUnavailable,
+    ]);
+
+    if (builtInAssistantLabels.has(assistantStatusLabel)) {
+      if (
+        assistantStatusLabel === UI_TEXT.en.assistantStatusLocal ||
+        assistantStatusLabel === UI_TEXT.zh.assistantStatusLocal
+      ) {
+        setAssistantStatusLabel(UI_TEXT[language].assistantStatusLocal);
+      } else if (
+        assistantStatusLabel === UI_TEXT.en.assistantStatusUnavailable ||
+        assistantStatusLabel === UI_TEXT.zh.assistantStatusUnavailable
+      ) {
+        setAssistantStatusLabel(UI_TEXT[language].assistantStatusUnavailable);
+      } else {
+        setAssistantStatusLabel(UI_TEXT[language].assistantStatusContext);
+      }
+    }
+  }, [assistantStatusLabel, language]);
+
+  useEffect(() => {
+    const canvas = document.getElementById("antigravity-particles");
+    if (canvas) {
+      if (currentPage === "match-centre") {
+        canvas.classList.remove("particle-canvas--hidden");
+      } else {
+        canvas.classList.add("particle-canvas--hidden");
+      }
+    }
+  }, [currentPage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -322,11 +515,19 @@ function App() {
     }
   }, [leftOpponent, opponents, rightOpponent]);
 
-  const filtered = filterPossessions(teamPossessions, filters);
+  const normalizedTeamPossessions = normalizePossessionSet(teamPossessions);
+  const filtered = filterPossessions(normalizedTeamPossessions, filters);
   const deferredFiltered = useDeferredValue(filtered);
-  const ranked = rankRepresentativePossessions(teamPossessions, filters, activeSignal);
+  const ranked = rankRepresentativePossessions(
+    normalizedTeamPossessions,
+    filters,
+    activeSignal,
+    undefined,
+    language,
+  );
   const deferredRanked = useDeferredValue(ranked);
   const summaries = buildSignalSummaries(deferredFiltered);
+  const summaryMetrics = computeSummaryMetrics(deferredFiltered);
   const formations = getFormationTendencies(deferredFiltered);
   const actionBuckets = getActionValueBuckets(deferredFiltered);
   const headlineMoments = deferredRanked.slice(0, 3);
@@ -335,7 +536,7 @@ function App() {
     const rightTime = right.videoStartSec ?? right.minute * 60;
     return leftTime - rightTime;
   });
-  const contextLabel = formatContextLock(filters);
+  const contextLabel = buildContextLockLabel(filters, language);
   const focusPossession =
     deferredRanked.find((possession) => possession.id === focusId) ??
     timelineMoments.find((possession) => possession.id === focusId) ??
@@ -350,21 +551,39 @@ function App() {
     : "";
 
   const comparisonLabel =
-    COMPARISON_METRICS.find((metric) => metric.key === comparisonMetric)?.label ??
-    comparisonMetric;
+    comparisonMetricOptions.find((metric) => metric.key === comparisonMetric)
+      ?.label ?? comparisonMetric;
+  const activePreset =
+    quickPresets.find((preset) => preset.id === activePresetId) ?? null;
 
   const leftComparison = leftOpponent
-    ? buildComparisonSet(teamPossessions, activeSignal, filters, leftOpponent)
+    ? buildComparisonSet(
+        normalizedTeamPossessions,
+        activeSignal,
+        filters,
+        leftOpponent,
+        undefined,
+        language,
+      )
     : [];
   const rightComparison = rightOpponent
-    ? buildComparisonSet(teamPossessions, activeSignal, filters, rightOpponent)
+    ? buildComparisonSet(
+        normalizedTeamPossessions,
+        activeSignal,
+        filters,
+        rightOpponent,
+        undefined,
+        language,
+      )
     : [];
-  const comparisonText = summarizeComparison(
+  const comparisonResult = comparePossessionGroups(
     leftComparison,
     rightComparison,
-    leftOpponent || "Lane A",
-    rightOpponent || "Lane B",
+    leftOpponent || ui.laneA,
+    rightOpponent || ui.laneB,
+    language,
   );
+  const comparisonText = comparisonResult.summary;
 
   const leftComparisonMetric = metricValue(
     comparisonMetric,
@@ -377,7 +596,7 @@ function App() {
 
   const opponentBoard = opponents
     .map((opponent) => {
-      const scoped = filterPossessions(teamPossessions, {
+      const scoped = filterPossessions(normalizedTeamPossessions, {
         ...filters,
         opponent,
       });
@@ -403,36 +622,95 @@ function App() {
       return right.count - left.count;
     });
 
-  const deskInsights = [
-    sourceMode === "video" && videoSummary
-      ? `Video engine mapped ${videoSummary.momentCount} candidate sequences from a ${videoSummary.videoDurationLabel} source at ${videoSummary.analysisFps} fps.`
-      : `Dataset: ${datasetLabel}. ${teamPossessions.length} clips are mapped to ${analysisTeam}.`,
-    focusPossession
-      ? `Focused evidence: ${focusPossession.title}. ${focusPossession.videoStartSec != null && focusPossession.videoEndSec != null
-        ? `${formatClock(focusPossession.videoStartSec)}-${formatClock(
-          focusPossession.videoEndSec,
-        )}.`
-        : `${focusPossession.minute}'.`
-      }`
-      : "No focused clip is available under the current lock.",
-    `${comparisonLabel} leader: ${leftComparisonMetric >= rightComparisonMetric ? leftOpponent : rightOpponent
-    } (${metricFormatter(
-      comparisonMetric,
-      Math.max(leftComparisonMetric, rightComparisonMetric),
-    )}).`,
-    formations[0]
-      ? `Dominant structure: ${formations[0].formation}.`
-      : "No dominant structure under the current filters.",
+  const scenarioSummary = [
+    {
+      label: ui.scenarioSummary,
+      value: activePreset?.label ?? ui.customLock,
+      meta:
+        activePreset?.description ??
+        ui.customLockMeta,
+    },
+    {
+      label: ui.activeSignalLabel,
+      value: signalLabel(activeSignal, language),
+      meta: ui.rankedClipMeta(deferredRanked.length),
+    },
+    {
+      label: ui.currentLock,
+      value: contextLabel,
+      meta: ui.scopeMeta(deferredFiltered.length),
+    },
+    {
+      label: ui.focusClip,
+      value: focusPossession?.title ?? ui.noClipSelected,
+      meta: focusPossession
+        ? `${focusPossession.opponent} · ${phaseLabel(focusPossession.phase, language)} · ${focusPossession.minute}'`
+        : ui.chooseScenarioMeta,
+    },
+  ];
+  const summaryMetricCards = [
+    {
+      label: language === "zh" ? "左路出球占比" : "Left-lane build-up share",
+      value: percentLabel(summaryMetrics.laneShare["Left lane"]),
+      meta:
+        language === "zh"
+          ? "当前锁定条件下起脚于左路的回合比例"
+          : "Share of matched possessions developing through the left lane",
+    },
+    {
+      label: language === "zh" ? "平均推进距离" : "Average progression",
+      value: `${summaryMetrics.averageProgressionDistance.toFixed(1)}m`,
+      meta:
+        language === "zh"
+          ? "从回合起点到最深推进位置的平均距离"
+          : "Average field gain from start point to furthest progression",
+    },
+    {
+      label:
+        language === "zh" ? "进入中场前传球数" : "Passes before middle-third access",
+      value: summaryMetrics.averagePassesBeforeMiddleThird.toFixed(1),
+      meta:
+        language === "zh"
+          ? "到达中场前平均需要的传球数"
+          : "Average passes required before entering the middle third",
+    },
+    {
+      label:
+        language === "zh" ? "过半场前失误率" : "Turnover-before-midline rate",
+      value: percentLabel(summaryMetrics.turnoverBeforeMidlineRate),
+      meta:
+        language === "zh"
+          ? "在过半场前丢失球权的比例"
+          : "Share of possessions that end in a turnover before midfield",
+    },
+    {
+      label: language === "zh" ? "成功进入中场率" : "Success-to-middle-third rate",
+      value: percentLabel(summaryMetrics.successToMiddleThirdRate),
+      meta:
+        language === "zh"
+          ? "成功推进到中场的回合比例"
+          : "Share of possessions that successfully reach the middle third",
+    },
   ];
 
   const exportNote = buildExportNote({
     filters,
     activeSignal,
     ranked: deferredRanked,
-    leftOpponent: leftOpponent || "Lane A",
-    rightOpponent: rightOpponent || "Lane B",
+    leftOpponent: leftOpponent || ui.laneA,
+    rightOpponent: rightOpponent || ui.laneB,
     comparisonText,
+    language,
   });
+
+  const assistantQuickPrompts = [
+    focusPossession
+      ? ui.assistantPromptWhy(focusPossession.title)
+      : ui.assistantPromptTakeaway,
+    ui.assistantPromptCompare(leftOpponent || ui.laneA, rightOpponent || ui.laneB),
+    ui.assistantPromptCoach(signalLabel(activeSignal, language)),
+    ui.assistantPromptLock,
+  ];
 
   const timelineRangeSec =
     videoSummary?.videoDurationSec ??
@@ -449,6 +727,12 @@ function App() {
       setFocusId(deferredRanked[0].id);
     }
   }, [deferredRanked, focusPossession]);
+
+  const resetAssistantThread = (signal: TacticalSignal = activeSignal) => {
+    setAssistantMessages([buildAssistantWelcome(signal, language)]);
+    setAssistantDraft("");
+    setAssistantStatusLabel(ui.assistantStatusContext);
+  };
 
   useEffect(() => {
     const player = videoRef.current;
@@ -527,22 +811,26 @@ function App() {
   };
 
   const applyVideoResult = (result: VideoAnalysisResult, sourceLabel: string) => {
+    const normalizedPossessions = normalizePossessionSet(result.possessions);
     startTransition(() => {
       setSourceMode("video");
       setVideoSummary(result.summary);
-      setSourcePossessions(result.possessions);
+      setSourcePossessions(normalizedPossessions);
       setDatasetLabel(result.datasetLabel);
       setAnalysisTeam(result.analysisTeam);
-      setFilters(defaultFilters);
+      setFilters(defaultScenarioFilters);
       setActiveSignal("Left overload release");
-      setActivePresetId("overview");
+      setActivePresetId("mvp-build-up");
       setExpandedId("");
       setFocusView("overview");
-      setFocusId(result.possessions[0]?.id ?? "");
+      setFocusId(normalizedPossessions[0]?.id ?? "");
       setPlayerMode("clip");
     });
+    resetAssistantThread("Left overload release");
     setIngestStatus(
-      `Analyzed ${sourceLabel}: ${result.summary.momentCount} candidate clips were extracted from ${result.summary.videoDurationLabel}.`,
+      language === "zh"
+        ? `已分析 ${sourceLabel}：从 ${result.summary.videoDurationLabel} 的视频中抽取出 ${result.summary.momentCount} 个候选片段。`
+        : `Analyzed ${sourceLabel}: ${result.summary.momentCount} candidate clips were extracted from ${result.summary.videoDurationLabel}.`,
     );
   };
 
@@ -589,7 +877,7 @@ function App() {
   };
 
   const applyPreset = (presetId: string) => {
-    const preset = QUICK_PRESETS.find((item) => item.id === presetId);
+    const preset = quickPresets.find((item) => item.id === presetId);
     if (!preset) {
       return;
     }
@@ -611,9 +899,13 @@ function App() {
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(exportNote);
-      setCopyStatus("Copied to clipboard.");
+      setCopyStatus(language === "zh" ? "已复制到剪贴板。" : "Copied to clipboard.");
     } catch {
-      setCopyStatus("Clipboard permission blocked. Use download instead.");
+      setCopyStatus(
+        language === "zh"
+          ? "剪贴板权限不可用，请改用下载。"
+          : "Clipboard permission blocked. Use download instead.",
+      );
     }
   };
 
@@ -647,10 +939,288 @@ function App() {
     );
   };
 
+  const applyImportedDataset = (
+    dataset: {
+      datasetLabel: string;
+      possessions: Possession[];
+      availableTeams: string[];
+    },
+    options?: {
+      datasetLabel?: string;
+      preferredTeam?: string;
+    },
+  ) => {
+    const nextDatasetLabel = options?.datasetLabel || dataset.datasetLabel;
+    const nextTeam =
+      (options?.preferredTeam &&
+      dataset.availableTeams.includes(options.preferredTeam)
+        ? options.preferredTeam
+        : null) ??
+      dataset.availableTeams[0] ??
+      TARGET_TEAM;
+
+    startTransition(() => {
+      setSourceMode("events");
+      setVideoSummary(null);
+      setSourcePossessions(normalizePossessionSet(dataset.possessions));
+      setDatasetLabel(nextDatasetLabel);
+      setAnalysisTeam(nextTeam);
+      setFilters(defaultScenarioFilters);
+      setActiveSignal("Left overload release");
+      setActivePresetId("mvp-build-up");
+      setExpandedId("");
+      setFocusView("overview");
+      setFocusId(dataset.possessions[0]?.id ?? "");
+      setPlayerMode("clip");
+    });
+    resetAssistantThread("Left overload release");
+  };
+
+  const assistantAnalysisTeam =
+    sourceMode === "sample"
+      ? language === "zh"
+        ? "当前球队"
+        : "the current team"
+      : analysisTeam;
+
+  const submitAssistantQuestion = async (questionText: string) => {
+    const question = questionText.trim();
+    if (!question || isAssistantLoading) {
+      return;
+    }
+
+    const userMessage: AssistantMessage = {
+      id: buildMessageId(),
+      role: "user",
+      content: question,
+    };
+
+    const nextConversation = [...assistantMessages, userMessage];
+    setAssistantMessages(nextConversation);
+    setAssistantDraft("");
+    setIsAssistantLoading(true);
+
+    try {
+      const response = await askAssistant({
+        question,
+        conversation: nextConversation
+          .slice(-8)
+          .map(({ role, content }) => ({ role, content })),
+        datasetLabel,
+        analysisTeam: assistantAnalysisTeam,
+        contextLock: contextLabel,
+        activeSignal,
+        comparisonMetricLabel: comparisonLabel,
+        comparisonText,
+        leftOpponent: leftOpponent || ui.laneA,
+        rightOpponent: rightOpponent || ui.laneB,
+        filteredCount: deferredFiltered.length,
+        teamClipCount: teamPossessions.length,
+        focusPossession,
+        rankedPossessions: deferredRanked.slice(0, 5),
+        videoSummary,
+        exportNote,
+      });
+
+      setAssistantMessages((current) => [
+        ...current,
+        {
+          id: buildMessageId(),
+          role: "assistant",
+          content: response.answer,
+          meta:
+            response.mode === "local" ? ui.assistantStatusLocal : response.model,
+        },
+      ]);
+      setAssistantStatusLabel(
+        response.mode === "local" ? ui.assistantStatusLocal : response.model,
+      );
+    } catch (error) {
+      setAssistantMessages((current) => [
+        ...current,
+        {
+          id: buildMessageId(),
+          role: "assistant",
+          content:
+            error instanceof Error
+              ? error.message
+              : language === "zh"
+                ? "助手请求失败。"
+                : "Assistant request failed.",
+          meta: ui.assistantStatusUnavailable,
+        },
+      ]);
+      setAssistantStatusLabel(ui.assistantStatusUnavailable);
+    } finally {
+      setIsAssistantLoading(false);
+    }
+  };
+
+  const handleAssistantSend = async () => {
+    await submitAssistantQuestion(assistantDraft);
+  };
+
+  const handleAssistantPrompt = async (prompt: string) => {
+    setAssistantDraft(prompt);
+    await submitAssistantQuestion(prompt);
+  };
+
+  const loadStatsBombMatchesForCompetition = async (
+    competitionKey: string,
+    competitionList: StatsBombCompetition[] = statsBombCompetitions,
+  ) => {
+    const competition = competitionList.find((item) => item.key === competitionKey);
+    if (!competition) {
+      return;
+    }
+
+    setIsStatsBombLoading(true);
+    setIngestError("");
+    setIngestStatus(
+      language === "zh"
+        ? "正在读取免费 StatsBomb 比赛列表..."
+        : "Loading free StatsBomb match list...",
+    );
+
+    try {
+      const matches = await getStatsBombMatches(
+        competition.competitionId,
+        competition.seasonId,
+      );
+      setSelectedCompetitionKey(competitionKey);
+      setStatsBombMatches(matches);
+      setStatsBombMatchQuery("");
+      setSelectedMatchIds(matches.slice(0, Math.min(2, matches.length)).map((match) => match.matchId));
+      setIngestStatus(
+        language === "zh"
+          ? `已加载 ${matches.length} 场免费比赛。`
+          : `Loaded ${matches.length} free matches.`,
+      );
+    } catch (error) {
+      setIngestError(
+        error instanceof Error
+          ? error.message
+          : language === "zh"
+            ? "无法加载 StatsBomb 比赛列表。"
+            : "Could not load StatsBomb matches.",
+      );
+    } finally {
+      setIsStatsBombLoading(false);
+    }
+  };
+
+  const ensureStatsBombCatalog = async () => {
+    if (statsBombCompetitions.length) {
+      return;
+    }
+
+    setIsStatsBombLoading(true);
+    setIngestError("");
+    setIngestStatus(
+      language === "zh"
+        ? "正在连接免费 StatsBomb Open Data..."
+        : "Connecting to free StatsBomb Open Data...",
+    );
+
+    try {
+      const competitions = await getStatsBombCompetitions();
+      setStatsBombCompetitions(competitions);
+      const firstCompetition = competitions[0];
+      if (firstCompetition) {
+        await loadStatsBombMatchesForCompetition(firstCompetition.key, competitions);
+      } else {
+        setIngestStatus(
+          language === "zh"
+            ? "没有可用的 StatsBomb 开放数据。"
+            : "No StatsBomb open-data competitions available.",
+        );
+      }
+    } catch (error) {
+      setIngestError(
+        error instanceof Error
+          ? error.message
+          : language === "zh"
+            ? "无法连接 StatsBomb 开放数据。"
+            : "Could not connect to StatsBomb Open Data.",
+      );
+    } finally {
+      setIsStatsBombLoading(false);
+    }
+  };
+
+  const handleStatsBombImport = async () => {
+    if (!selectedMatchIds.length) {
+      setIngestError(
+        language === "zh"
+          ? "请至少选择一场免费比赛。"
+          : "Select at least one free match.",
+      );
+      return;
+    }
+
+    setIsStatsBombLoading(true);
+    setIngestError("");
+    setIngestStatus(
+      language === "zh"
+        ? "正在导入免费 StatsBomb 比赛事件..."
+        : "Importing free StatsBomb match events...",
+    );
+
+    try {
+      const payload = await importStatsBombMatches(selectedMatchIds);
+      const dataset = parseImportedDataset(payload.files);
+      const selectedMatches = statsBombMatches.filter((match) =>
+        selectedMatchIds.includes(match.matchId),
+      );
+      const sharedTeam =
+        selectedMatches.length > 1
+          ? [selectedMatches[0].homeTeam, selectedMatches[0].awayTeam].find((team) =>
+              selectedMatches.every(
+                (match) => match.homeTeam === team || match.awayTeam === team,
+              ),
+            )
+          : selectedMatches[0]
+            ? selectedMatches[0].homeTeam
+            : undefined;
+
+      applyImportedDataset(dataset, {
+        datasetLabel: payload.datasetLabel,
+        preferredTeam: sharedTeam,
+      });
+      setIngestStatus(
+        language === "zh"
+          ? `已导入 ${selectedMatchIds.length} 场免费 StatsBomb 比赛。`
+          : `Imported ${selectedMatchIds.length} free StatsBomb matches.`,
+      );
+    } catch (error) {
+      setIngestError(
+        error instanceof Error
+          ? error.message
+          : language === "zh"
+            ? "免费比赛导入失败。"
+            : "Free match import failed.",
+      );
+    } finally {
+      setIsStatsBombLoading(false);
+    }
+  };
+
+  const toggleStatsBombMatch = (matchId: number) => {
+    setSelectedMatchIds((current) =>
+      current.includes(matchId)
+        ? current.filter((id) => id !== matchId)
+        : [...current, matchId],
+    );
+  };
+
   const importDataFiles = async (files: File[]) => {
     try {
       setIngestError("");
-      setIngestStatus("Parsing structured event files...");
+      setIngestStatus(
+        language === "zh"
+          ? "正在解析结构化事件文件..."
+          : "Parsing structured event files...",
+      );
       const imported = await Promise.all(
         files.map(async (file) => ({
           name: file.name,
@@ -658,44 +1228,45 @@ function App() {
         })),
       );
       const dataset = parseImportedDataset(imported);
-      startTransition(() => {
-        setSourceMode("events");
-        setVideoSummary(null);
-        setSourcePossessions(dataset.possessions);
-        setDatasetLabel(dataset.datasetLabel);
-        setAnalysisTeam(dataset.availableTeams[0] ?? TARGET_TEAM);
-        setFilters(defaultFilters);
-        setActiveSignal("Left overload release");
-        setActivePresetId("overview");
-        setExpandedId("");
-        setFocusView("overview");
-        setFocusId(dataset.possessions[0]?.id ?? "");
-        setPlayerMode("clip");
-      });
+      applyImportedDataset(dataset);
       setIngestStatus(
-        `Imported ${dataset.possessions.length} clips from ${dataset.datasetLabel}.`,
+        language === "zh"
+          ? `已从 ${dataset.datasetLabel} 导入 ${dataset.possessions.length} 个片段。`
+          : `Imported ${dataset.possessions.length} clips from ${dataset.datasetLabel}.`,
       );
     } catch (error) {
-      setIngestError(error instanceof Error ? error.message : "Import failed.");
-      setIngestStatus("Structured data import failed.");
+      setIngestError(error instanceof Error ? error.message : language === "zh" ? "导入失败。" : "Import failed.");
+      setIngestStatus(
+        language === "zh"
+          ? "结构化数据导入失败。"
+          : "Structured data import failed.",
+      );
     }
   };
 
   const analyzeVideo = async (file: File) => {
     if (engineStatus === "offline") {
-      setIngestError("Video engine offline. Start the FastAPI service on port 8000.");
+      setIngestError(
+        language === "zh"
+          ? "视频引擎离线，请先启动 8000 端口上的 FastAPI 服务。"
+          : "Video engine offline. Start the FastAPI service on port 8000.",
+      );
       return;
     }
 
     try {
       setIngestError("");
       setIsVideoAnalyzing(true);
-      setIngestStatus(`Analyzing ${file.name}... extracting visual moments and clips.`);
+      setIngestStatus(
+        language === "zh"
+          ? `正在分析 ${file.name}，提取视觉片段和候选时刻...`
+          : `Analyzing ${file.name}... extracting visual moments and clips.`,
+      );
       const result = await analyzeVideoFile(file, videoInput);
       applyVideoResult(result, file.name);
     } catch (error) {
-      setIngestError(error instanceof Error ? error.message : "Video analysis failed.");
-      setIngestStatus("Video analysis failed.");
+      setIngestError(error instanceof Error ? error.message : language === "zh" ? "视频分析失败。" : "Video analysis failed.");
+      setIngestStatus(language === "zh" ? "视频分析失败。" : "Video analysis failed.");
     } finally {
       setIsVideoAnalyzing(false);
     }
@@ -732,12 +1303,20 @@ function App() {
     const dataFiles = files.filter((file) => fileMatches(file, DATA_EXTENSIONS));
 
     if (videoFiles.length && dataFiles.length) {
-      setIngestError("Drop either one video file or one or more CSV/JSON files, not both.");
+      setIngestError(
+        language === "zh"
+          ? "请只拖入一个视频文件，或者一组 CSV/JSON 文件，不能混合上传。"
+          : "Drop either one video file or one or more CSV/JSON files, not both.",
+      );
       return;
     }
 
     if (videoFiles.length > 1) {
-      setIngestError("Upload one video at a time so the extracted clips stay aligned.");
+      setIngestError(
+        language === "zh"
+          ? "一次只能上传一个视频，以保证提取片段与时间轴保持一致。"
+          : "Upload one video at a time so the extracted clips stay aligned.",
+      );
       return;
     }
 
@@ -751,13 +1330,21 @@ function App() {
       return;
     }
 
-    setIngestError("Unsupported files. Use one video or CSV/JSON data files.");
+    setIngestError(
+      language === "zh"
+        ? "文件类型不支持，请上传一个视频或 CSV/JSON 数据文件。"
+        : "Unsupported files. Use one video or CSV/JSON data files.",
+    );
   };
 
   const loadBundledDemo = async () => {
     try {
       setIngestError("");
-      setIngestStatus("Loading bundled real match demo...");
+      setIngestStatus(
+        language === "zh"
+          ? "正在加载内置真实比赛示例..."
+          : "Loading bundled real match demo...",
+      );
       const manifestResponse = await fetch("/demo/statsbomb-arsenal-wfc/manifest.json");
       const manifest = (await manifestResponse.json()) as {
         datasetLabel: string;
@@ -776,32 +1363,34 @@ function App() {
       );
 
       const dataset = parseImportedDataset(imported);
-      startTransition(() => {
-        setSourceMode("events");
-        setVideoSummary(null);
-        setSourcePossessions(dataset.possessions);
-        setDatasetLabel(manifest.datasetLabel);
-        setAnalysisTeam(manifest.analysisTeam || dataset.availableTeams[0] || TARGET_TEAM);
-        setFilters(defaultFilters);
-        setActiveSignal("Left overload release");
-        setActivePresetId("overview");
-        setExpandedId("");
-        setFocusView("overview");
-        setFocusId(dataset.possessions[0]?.id ?? "");
-        setPlayerMode("clip");
+      applyImportedDataset(dataset, {
+        datasetLabel: manifest.datasetLabel,
+        preferredTeam: manifest.analysisTeam,
       });
-      setIngestStatus(`Loaded ${manifest.datasetLabel}.`);
+      setIngestStatus(
+        language === "zh"
+          ? `已加载 ${manifest.datasetLabel}。`
+          : `Loaded ${manifest.datasetLabel}.`,
+      );
     } catch (error) {
       setIngestError(
-        error instanceof Error ? error.message : "Could not load bundled demo.",
+        error instanceof Error
+          ? error.message
+          : language === "zh"
+            ? "无法加载内置示例。"
+            : "Could not load bundled demo.",
       );
-      setIngestStatus("Bundled demo load failed.");
+      setIngestStatus(
+        language === "zh"
+          ? "内置示例加载失败。"
+          : "Bundled demo load failed.",
+      );
     }
   };
 
   return (
     <div className="app-shell">
-      <div className="app-background" />
+      <div className={`app-background ${currentPage === "match-centre" ? "" : "app-background--hidden"}`} />
       <header className="global-header">
         <div className="brand-lockup">
           <div className="brand-mark" style={{ background: "transparent", border: "none", boxShadow: "none", padding: 0, width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -809,11 +1398,11 @@ function App() {
           </div>
           <div>
             <p>GT</p>
-            <span>Analysis workspace</span>
+            <span>{ui.brandSubtitle}</span>
           </div>
         </div>
         <nav className="header-nav" aria-label="Primary">
-          {HEADER_CHANNELS.map((channel) => (
+          {headerChannels.map((channel) => (
             <button
               key={channel.id}
               onClick={() => setCurrentPage(channel.id)}
@@ -822,101 +1411,157 @@ function App() {
               {channel.label}
             </button>
           ))}
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() =>
+              setLanguage((current) => (current === "zh" ? "en" : "zh"))
+            }
+          >
+            {ui.langSwitch}
+          </button>
         </nav>
         <div className="header-status">
-          <span>Engine</span>
+          <span>{ui.engine}</span>
           <strong>
             {isVideoAnalyzing
-              ? "Analyzing video"
+              ? ui.analyzing
               : engineStatus === "ready"
-                ? "Ready"
+                ? ui.ready
                 : engineStatus === "offline"
-                  ? "Offline"
-                  : "Checking"}
+                  ? ui.offline
+                  : ui.checking}
           </strong>
         </div>
       </header>
 
       {currentPage === "match-centre" && (
         <div className="page-section">
-      <div className="antigravity-hero-container">
-        <div className="big-logo-icon" style={{margin: "0 auto 24px auto", boxShadow: "0 12px 24px rgba(179, 163, 105, 0.4)", background: "transparent"}}>
-            <img src="/gt-logo.svg" alt="GT Logo" style={{ width: "100%", height: "100%", objectFit: "contain", transform: "scale(1.2)" }} />
-        </div>
-        <div className="company-name" style={{textAlign: "center", textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--muted)", fontWeight: 500, fontSize: "16px"}}>GT Demo XI</div>
-        <Typewriter text={`Pitchlens analysis workspace`} />
-        <p className="subtitle" style={{textAlign: "center", marginBottom: 0, fontSize: "18px", color: "var(--muted)", maxWidth: "600px", margin: "0 auto"}}>Experience liftoff with the next-generation IDE.</p>
-      </div>
+          <div className="antigravity-hero-container">
+            <div
+              className="big-logo-icon"
+              style={{ margin: "0 auto 24px auto", background: "transparent" }}
+            >
+              <img
+                src="/gt-logo.svg"
+                alt="GT Logo"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "contain",
+                  transform: "scale(1.2)",
+                }}
+              />
+            </div>
+            <div
+              className="company-name"
+              style={{
+                textAlign: "center",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+                color: "var(--muted)",
+                fontWeight: 500,
+                fontSize: "16px",
+              }}
+            >
+              GT Demo XI
+            </div>
+            <h1 className="antigravity-hero-text">
+              {language === "zh"
+                ? "PitchLens 事件分析工作流"
+                : "PitchLens event-first workflow"}
+            </h1>
+            <p
+              className="subtitle"
+              style={{
+                textAlign: "center",
+                marginBottom: 0,
+                fontSize: "18px",
+                color: "var(--muted)",
+                maxWidth: "760px",
+                margin: "0 auto",
+              }}
+            >
+              {language === "zh"
+                ? "Find representative possessions, compare matched contexts, and export evidence-backed tactical notes."
+                : "Find representative possessions, compare matched contexts, and export evidence-backed tactical notes."}
+            </p>
+          </div>
 
-      <header className="masthead" id="match-centre">
-        <div className="hero-copy-column">
-          <p className="workspace-subtitle">
-            {sourceMode === "video" ? "Video-derived evidence" : "Structured evidence"} ·{" "}
-            {datasetLabel}
-          </p>
-          <p className="hero-copy">
-            Start by loading your data in <strong>Data Loader</strong>, then apply filters, explore signal summaries, and run a deep-dive comparison.
-          </p>
-          <div className="hero-highlights">
-            <article>
-              <span>① Data Loader</span>
-              <strong>{datasetLabel}</strong>
-              <small>
-                {sourceMode === "video" && videoSummary
-                  ? `${videoSummary.momentCount} clips extracted from video`
-                  : `${teamPossessions.length} clips loaded · StatsBomb open data`}
-              </small>
-            </article>
-            <article>
-              <span>② Filters</span>
-              <strong>{contextLabel}</strong>
-              <small>
-                {filters.opponent === "All opponents"
-                  ? "All opponents · No lock applied"
-                  : `Locked to ${filters.opponent}`}
-              </small>
-            </article>
-            <article>
-              <span>③ Active Signal</span>
-              <strong>{activeSignal}</strong>
-              <small>
-                {deferredFiltered.length} matching possessions in scope
-              </small>
-            </article>
-            <article>
-              <span>④ Focused Clip</span>
-              <strong>
-                {focusPossession
-                  ? focusPossession.videoStartSec != null
-                    ? formatClock(focusPossession.videoStartSec)
-                    : `${focusPossession.minute}'`
-                  : "None selected"}
-              </strong>
-              <small>{focusPossession?.title ?? "Go to Deep Dive to inspect a clip."}</small>
-            </article>
-          </div>
-          <div className="summary-list">
-            {headlineMoments.length === 0 ? (
-              <div className="summary-row summary-row--empty">
-                No evidence under the current lock.
+          <section className="panel summary-panel" id="match-centre">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Overview</p>
+                <h2>
+                  {language === "zh" ? "概览" : "Overview"}
+                </h2>
               </div>
-            ) : (
-              headlineMoments.map((moment) => (
-                <article key={moment.id} className="summary-row">
-                  <span>
-                    {moment.matchLabel} ·{" "}
-                    {moment.videoStartSec != null
-                      ? formatClock(moment.videoStartSec)
-                      : `${moment.minute}'`}
-                  </span>
-                  <strong>{moment.title}</strong>
-                </article>
-              ))
-            )}
-          </div>
+            </div>
+
+            <div className="scenario-summary-grid">
+              <article className="scenario-summary-card">
+                <span>{language === "zh" ? "数据集" : "Dataset"}</span>
+                <strong>{datasetLabel}</strong>
+                <small>
+                  {sourceMode === "video" && videoSummary
+                    ? language === "zh"
+                      ? `${videoSummary.momentCount} 个视频片段已归一化为回合`
+                      : `${videoSummary.momentCount} video clips normalized into possessions`
+                    : language === "zh"
+                      ? `${normalizedTeamPossessions.length} 个回合可参与事件分析`
+                      : `${normalizedTeamPossessions.length} possessions available for event analysis`}
+                </small>
+              </article>
+              <article className="scenario-summary-card">
+                <span>{language === "zh" ? "当前锁定" : "Current lock"}</span>
+                <strong>{contextLabel}</strong>
+                <small>
+                  {language === "zh"
+                    ? `${deferredFiltered.length} 个回合仍在上下文内`
+                    : `${deferredFiltered.length} possessions remain inside the active context`}
+                </small>
+              </article>
+              <article className="scenario-summary-card">
+                <span>{language === "zh" ? "当前信号" : "Active signal"}</span>
+                <strong>{signalLabel(activeSignal, language)}</strong>
+                <small>
+                  {language === "zh"
+                    ? `${deferredRanked.length} 个代表性回合已排序`
+                    : `${deferredRanked.length} representative possessions are ranked`}
+                </small>
+              </article>
+              <article className="scenario-summary-card">
+                <span>{language === "zh" ? "当前对比" : "Current comparison"}</span>
+                <strong>{`${leftOpponent || ui.laneA} vs ${rightOpponent || ui.laneB}`}</strong>
+                <small>
+                  {comparisonMetricLabel(comparisonMetric, language)} ·{" "}
+                  {metricFormatter(
+                    comparisonMetric,
+                    Math.max(leftComparisonMetric, rightComparisonMetric),
+                  )}
+                </small>
+              </article>
+            </div>
+
+            <div className="summary-list">
+              {headlineMoments.length === 0 ? (
+                <div className="summary-row summary-row--empty">{ui.noEvidence}</div>
+              ) : (
+                headlineMoments.map((moment) => (
+                  <article key={moment.id} className="summary-row">
+                    <span>
+                      {moment.matchLabel} ·{" "}
+                      {moment.videoStartSec != null
+                        ? formatClock(moment.videoStartSec)
+                        : `${moment.minute}'`}
+                    </span>
+                    <strong>{moment.title}</strong>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
         </div>
-      </header>
-      </div>
       )}
 
 
@@ -926,15 +1571,12 @@ function App() {
         <section className="panel filters-panel" id="context-lock">
           <div className="panel-heading">
             <div>
-              <SectionTypewriter text="Filters" />
+              <SectionTypewriter text={ui.filtersTitle} />
             </div>
-            <p className="panel-copy">
-              Isolate match data by selecting specific teams, pitch locations, or match phases. Your selections will dynamically rebuild all analytical models and video clips on other pages.
-            </p>
           </div>
           <div className="filter-grid">
             <label>
-              Analysis team
+              {ui.analysisTeam}
               <select
                 value={analysisTeam}
                 onChange={(event) => setAnalysisTeam(event.target.value)}
@@ -945,19 +1587,19 @@ function App() {
               </select>
             </label>
             <label>
-              Opponent scope
+              {ui.opponentScope}
               <select
                 value={filters.opponent}
                 onChange={(event) => updateFilter("opponent", event.target.value)}
               >
-                <option>All opponents</option>
+                <option value="All opponents">{ui.allOpponents}</option>
                 {opponents.map((opponent) => (
                   <option key={opponent}>{opponent}</option>
                 ))}
               </select>
             </label>
             <label>
-              Game state
+              {ui.gameState}
               <select
                 value={filters.gameState}
                 onChange={(event) =>
@@ -967,60 +1609,81 @@ function App() {
                   )
                 }
               >
-                <option>All states</option>
-                <option>Winning</option>
-                <option>Drawing</option>
-                <option>Losing</option>
+                <option value="All states">{gameStateLabel("All states", language)}</option>
+                <option value="Winning">{gameStateLabel("Winning", language)}</option>
+                <option value="Drawing">{gameStateLabel("Drawing", language)}</option>
+                <option value="Losing">{gameStateLabel("Losing", language)}</option>
               </select>
             </label>
             <label>
-              Phase
+              {ui.phase}
               <select
                 value={filters.phase}
                 onChange={(event) =>
                   updateFilter("phase", event.target.value as ContextFilters["phase"])
                 }
               >
-                <option>All phases</option>
-                <option>Build-up</option>
-                <option>Press resistance</option>
-                <option>Sustained attack</option>
-                <option>Transition</option>
+                <option value="All phases">{phaseLabel("All phases", language)}</option>
+                <option value="Build-up">{phaseLabel("Build-up", language)}</option>
+                <option value="Press resistance">{phaseLabel("Press resistance", language)}</option>
+                <option value="Sustained attack">{phaseLabel("Sustained attack", language)}</option>
+                <option value="Transition">{phaseLabel("Transition", language)}</option>
               </select>
             </label>
             <label>
-              Zone
+              {language === "zh" ? "起始区域" : "Start zone"}
+              <select
+                value={filters.startZone}
+                onChange={(event) =>
+                  updateFilter(
+                    "startZone",
+                    event.target.value as ContextFilters["startZone"],
+                  )
+                }
+              >
+                <option value="All start zones">
+                  {startZoneLabel("All start zones", language)}
+                </option>
+                {getAvailableStartZones().map((zone) => (
+                  <option key={zone} value={zone}>
+                    {startZoneLabel(zone, language)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {ui.zone}
               <select
                 value={filters.zone}
                 onChange={(event) =>
                   updateFilter("zone", event.target.value as ContextFilters["zone"])
                 }
               >
-                <option>All zones</option>
-                <option>Left lane</option>
-                <option>Central lane</option>
-                <option>Right lane</option>
+                <option value="All zones">{zoneLabel("All zones", language)}</option>
+                <option value="Left lane">{zoneLabel("Left lane", language)}</option>
+                <option value="Central lane">{zoneLabel("Central lane", language)}</option>
+                <option value="Right lane">{zoneLabel("Right lane", language)}</option>
               </select>
             </label>
             <label>
-              Time window preset
+              {ui.timeWindow}
               <select
                 value={filters.timeWindow}
                 onChange={(event) =>
                   handleTimeWindowChange(event.target.value as TimeWindow)
                 }
               >
-                <option>All windows</option>
-                <option>0-30</option>
-                <option>31-60</option>
-                <option>61-90</option>
+                <option value="All windows">{timeWindowLabel("All windows", language)}</option>
+                <option value="0-30">{timeWindowLabel("0-30", language)}</option>
+                <option value="31-60">{timeWindowLabel("31-60", language)}</option>
+                <option value="61-90">{timeWindowLabel("61-90", language)}</option>
               </select>
             </label>
           </div>
 
           <div className="minute-brush">
             <div className="minute-brush-head">
-              <span>Minute range</span>
+              <span>{ui.minuteRange}</span>
               <strong>{buildMinuteRangeLabel(filters.minuteRange)}</strong>
             </div>
             <div className="minute-brush-track">
@@ -1058,60 +1721,89 @@ function App() {
           </div>
 
           <div className="method-note">
-            <p>Retrieval score</p>
+            <p>{language === "zh" ? "Retrieval" : "Retrieval"}</p>
             <strong>
-              S(p) = 0.48 signal + 0.24 context + 0.16 impact + 0.12 diversity
+              S(p) = 0.52 signal + 0.28 context + 0.20 diversity
             </strong>
-            <span>
-              Diversity suppresses near-duplicates so the final evidence set stays
-              compact and replayable.
-            </span>
           </div>
         </section>
       </div>
         )}
 
         {currentPage === "rankings" && (
-          <div className="page-section">
+          <div className="page-section page-section--rankings">
         <section className="panel summary-panel">
-            <div className="panel-heading">
+            <div className="panel-heading panel-heading--rankings">
               <div>
-                <SectionTypewriter text="Analytical Scenarios" />
+                <p className="eyebrow">{ui.scenariosEyebrow}</p>
+                <h2>{ui.scenariosTitle}</h2>
               </div>
-              <p className="panel-copy">
-                Load predefined tactical rubrics to instantly generate human-readable insights from raw match entropy.
-              </p>
             </div>
-            
-            <div className="preset-grid">
-              {QUICK_PRESETS.map((preset) => (
+
+            <div className="scenario-summary-grid">
+              {scenarioSummary.map((item) => (
+                <article key={item.label} className="scenario-summary-card">
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                  <small>{item.meta}</small>
+                </article>
+              ))}
+            </div>
+
+            <div className="panel-heading panel-heading--subsection">
+              <div>
+                <p className="eyebrow">
+                  {language === "zh" ? "摘要指标" : "Summary metrics"}
+                </p>
+                <h3>
+                  {language === "zh"
+                    ? "当前上下文下的事件指标"
+                    : "Event metrics under the active lock"}
+                </h3>
+              </div>
+            </div>
+
+            <div className="scenario-summary-grid">
+              {summaryMetricCards.map((item) => (
+                <article key={item.label} className="scenario-summary-card">
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                  <small>{item.meta}</small>
+                </article>
+              ))}
+            </div>
+
+            <div className="preset-grid preset-grid--rankings">
+              {quickPresets.map((preset) => (
                 <button
                   key={preset.id}
                   type="button"
                   className={activePresetId === preset.id ? "preset-card preset-card--active" : "preset-card"}
                   onClick={() => applyPreset(preset.id)}
                 >
+                  <div className="preset-card__topline">
+                    <span className="preset-card__eyebrow">{ui.scenarioCard}</span>
+                    {activePresetId === preset.id ? (
+                      <span className="preset-card__state">{ui.activePreset}</span>
+                    ) : null}
+                  </div>
                   <strong>{preset.label}</strong>
-                  <span>{preset.description}</span>
+                  <div className="preset-card__chips">
+                    {buildPresetTags({ ...preset, language }).map((tag) => (
+                      <i key={`${preset.id}-${tag}`} className="preset-chip">
+                        {tag}
+                      </i>
+                    ))}
+                  </div>
                 </button>
               ))}
             </div>
 
-            <div className="insight-list" style={{ marginBottom: "2rem" }}>
-              {deskInsights.map((insight) => (
-                <article key={insight} className="insight-item">
-                  {insight}
-                </article>
-              ))}
-            </div>
-
-            <div className="panel-heading" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "2rem" }}>
+            <div className="panel-heading panel-heading--subsection">
               <div>
-                <SectionTypewriter text="Telemetry Distributions" />
+                <p className="eyebrow">{ui.signalOverview}</p>
+                <h3>{ui.telemetryTitle}</h3>
               </div>
-              <p className="panel-copy">
-                Statistical breakdown of signal density and structural tendencies across the current selection.
-              </p>
             </div>
           <div className="statsbomb-signal-grid">
             {summaries.map((summary) => (
@@ -1126,20 +1818,20 @@ function App() {
                 onClick={() => handleSignalSelection(summary.signal)}
               >
                 <header>
-                  <span>{summary.signal}</span>
+                  <span>{signalLabel(summary.signal, language)}</span>
                   <div className="sb-status-dot" />
                 </header>
                 <div className="sb-kpi-val">
                   <strong>{summary.count}</strong>
-                  <small>detections</small>
+                  <small>{ui.detections}</small>
                 </div>
                 <footer>
                   <div>
-                    <span>Avg xT</span>
+                    <span>{ui.avgXt}</span>
                     <strong>{summary.averageThreat.toFixed(3)}</strong>
                   </div>
                   <div>
-                    <span>Avg AV</span>
+                    <span>{ui.avgAv}</span>
                     <strong>{summary.averageActionValue.toFixed(0)}</strong>
                   </div>
                 </footer>
@@ -1169,7 +1861,7 @@ function App() {
                       }}
                     />
                   </div>
-                  <span>{summary.signal.split(" ")[0]}</span>
+                  <span>{signalLabel(summary.signal, language)}</span>
                 </button>
               );
             })}
@@ -1177,7 +1869,7 @@ function App() {
 
           <div className="summary-split">
             <div>
-              <h3>Formation tendency</h3>
+              <h3>{ui.formationTendency}</h3>
               <div className="meter-list">
                 {formations.map((item) => (
                   <div key={item.formation} className="meter-row">
@@ -1196,28 +1888,28 @@ function App() {
               </div>
             </div>
             <div>
-              <h3>Action value distribution</h3>
+              <h3>{ui.actionValueDistribution}</h3>
               <div className="bucket-list">
                 <div>
-                  <span>High leverage</span>
+                  <span>{ui.highLeverage}</span>
                   <strong>{actionBuckets.high}</strong>
                 </div>
                 <div>
-                  <span>Medium leverage</span>
+                  <span>{ui.mediumLeverage}</span>
                   <strong>{actionBuckets.medium}</strong>
                 </div>
                 <div>
-                  <span>Low leverage</span>
+                  <span>{ui.lowLeverage}</span>
                   <strong>{actionBuckets.low}</strong>
                 </div>
               </div>
             </div>
             <div>
-              <h3 id="rankings">Opponent board</h3>
+              <h3 id="rankings">{ui.opponentBoard}</h3>
               <div className="opponent-board">
                 <div className="opponent-board-head">
-                  <span>Club</span>
-                  <span>Clips</span>
+                  <span>{ui.opponent}</span>
+                  <span>{ui.clips}</span>
                   <span>xT</span>
                   <span>AV</span>
                 </div>
@@ -1245,11 +1937,11 @@ function App() {
               <div className="dd-sidebar-left" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
                 <div className="dd-clip-list">
                   <div className="dd-panel-label">
-                    <span>Clips</span>
-                    <small>{deferredRanked.length} results</small>
+                    <span>{ui.clips}</span>
+                    <small>{deferredRanked.length} {ui.results}</small>
                   </div>
                   {deferredRanked.length === 0 ? (
-                    <div className="empty-state">No clips match the current filters.</div>
+                    <div className="empty-state">{ui.noMatchingClips}</div>
                   ) : (
                     deferredRanked.map((possession, index) => (
                       <button
@@ -1261,25 +1953,32 @@ function App() {
                         <div className="dd-clip-body">
                           <div className="dd-clip-title">{possession.title}</div>
                           <div className="dd-clip-meta">
-                            {possession.opponent} · {possession.phase} · {possession.minute}'
+                            {possession.opponent} · {phaseLabel(possession.phase, language)} · {possession.minute}'
                           </div>
-                          <div className="dd-clip-scores">
-                            <span style={{ color: "#E92727" }}>xT {possession.xThreat.toFixed(3)}</span>
-                            <span>AV {possession.actionValue}</span>
-                            <span style={{ fontWeight: 600, color: "var(--text)" }}>
-                              {possession.ranking.total.toFixed(2)}
-                            </span>
-                          </div>
+                        <div className="dd-clip-scores">
+                          <span style={{ color: "#E92727" }}>xT {possession.xThreat.toFixed(3)}</span>
+                          <span>AV {possession.actionValue}</span>
+                          <span style={{ fontWeight: 600, color: "var(--text)" }}>
+                            {possession.ranking.total.toFixed(2)}
+                          </span>
                         </div>
-                      </button>
-                    ))
+                        <div className="mvp-reason-list">
+                          {possession.retrievalReasons.slice(0, 2).map((reason) => (
+                            <span key={`${possession.id}-${reason.key}`} className="mvp-reason-chip">
+                              {reason.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </button>
+                  ))
                   )}
                 </div>
 
                 {/* Timeline strip - now pinned in the same left column */}
                 <div className="dd-timeline">
                   <div className="dd-panel-title">
-                    <span>Tactical Timeline</span>
+                    <span>{ui.tacticalTimeline}</span>
                   </div>
                   <div className="dd-timeline-track">
                     <div className="dd-timeline-line" />
@@ -1303,29 +2002,29 @@ function App() {
 
               {/* CENTER: Spatial/Video Workspace */}
               <div className="dd-pitch-col">
-                <div className="dd-panel-label">
+                  <div className="dd-panel-label">
                   <div className="dd-media-switcher">
                     <button 
                       className={isMediaMode === "pitch" ? "active" : ""} 
                       onClick={() => setIsMediaMode("pitch")}
-                    >Spatial Map</button>
+                    >{ui.spatialMap}</button>
                     <button 
                       className={isMediaMode === "video" ? "active" : ""} 
                       onClick={() => setIsMediaMode("video")}
-                    >Source Video</button>
+                    >{ui.sourceVideo}</button>
                   </div>
-                  <small>{isMediaMode === "pitch" ? "Tactical 360°" : "Broadcast Feed"}</small>
+                  <small>{isMediaMode === "pitch" ? ui.tacticalView : ui.broadcastView}</small>
                 </div>
                 
                 {focusPossession ? (
                   <div className="dd-media-container">
                     {isMediaMode === "pitch" ? (
                       <div className="dd-media-pitch-wrap">
-                        <MiniPitch possession={focusPossession} />
+                        <MiniPitch possession={focusPossession} language={language} />
                         <div className="dd-pitch-signal">
-                          <span className="dd-signal-tag">{focusPossession.primarySignal}</span>
+                          <span className="dd-signal-tag">{signalLabel(focusPossession.primarySignal, language)}</span>
                           {focusPossession.secondarySignals.map(s => (
-                            <span key={s} className="dd-signal-tag dd-signal-tag--secondary">{s}</span>
+                            <span key={s} className="dd-signal-tag dd-signal-tag--secondary">{signalLabel(s, language)}</span>
                           ))}
                         </div>
                       </div>
@@ -1356,7 +2055,7 @@ function App() {
                               onTimeUpdate={syncVideoMetrics}
                             />
                           ) : (
-                            <div className="video-placeholder">No video linked for this possession.</div>
+                            <div className="video-placeholder">{ui.noLinkedVideo}</div>
                           )}
                           <div className="video-overlay">
                             <div className="video-overlay-actions">
@@ -1365,7 +2064,7 @@ function App() {
                                 className="video-control"
                                 onClick={togglePlayback}
                               >
-                                {videoPlaying ? "Pause" : videoProgress >= 1 ? "Replay" : "Play"}
+                                {videoPlaying ? ui.pause : videoProgress >= 1 ? ui.replay : ui.play}
                               </button>
                               {focusPossession.fullVideoUrl && (
                                 <div className="video-mode-switcher">
@@ -1373,12 +2072,12 @@ function App() {
                                     type="button"
                                     className={playerMode === "clip" ? "video-mode-chip video-mode-chip--active" : "video-mode-chip"}
                                     onClick={() => setPlayerMode("clip")}
-                                  >Clip</button>
+                                  >{ui.clip}</button>
                                   <button
                                     type="button"
                                     className={playerMode === "full" ? "video-mode-chip video-mode-chip--active" : "video-mode-chip"}
                                     onClick={() => setPlayerMode("full")}
-                                  >Full match</button>
+                                  >{ui.fullMatch}</button>
                                 </div>
                               )}
                             </div>
@@ -1391,7 +2090,7 @@ function App() {
                     )}
                   </div>
                 ) : (
-                  <div className="empty-state dd-pitch-empty">Select a clip to view it.</div>
+                  <div className="empty-state dd-pitch-empty">{ui.selectClipToView}</div>
                 )}
               </div>
 
@@ -1400,14 +2099,14 @@ function App() {
                 {focusPossession ? (
                   <>
                     <div className="dd-panel-label">
-                      <span>Analysis</span>
+                      <span>{ui.analysis}</span>
                       <small>{focusPossession.matchLabel}</small>
                     </div>
                     <h2 className="dd-title">{focusPossession.title}</h2>
 
                     {/* Tabs */}
                     <div className="focus-tabs">
-                      {FOCUS_VIEWS.map((view) => (
+                      {focusViews.map((view) => (
                         <button
                           key={view.id}
                           type="button"
@@ -1423,15 +2122,15 @@ function App() {
                       <div className="dd-overview">
                         <div className="dd-kpi-row">
                           <div className="dd-kpi"><span>xThreat</span><strong>{focusPossession.xThreat.toFixed(3)}</strong></div>
-                          <div className="dd-kpi"><span>Action Value</span><strong>{focusPossession.actionValue}</strong></div>
-                          <div className="dd-kpi"><span>Passes</span><strong>{focusPossession.passes}</strong></div>
-                          <div className="dd-kpi"><span>Duration</span><strong>{focusPossession.durationSec}s</strong></div>
+                          <div className="dd-kpi"><span>{ui.actionValue}</span><strong>{focusPossession.actionValue}</strong></div>
+                          <div className="dd-kpi"><span>{ui.passes}</span><strong>{focusPossession.passes}</strong></div>
+                          <div className="dd-kpi"><span>{ui.duration}</span><strong>{focusPossession.durationSec}s</strong></div>
                         </div>
                         <div className="dd-stats-grid">
-                          <div><span>Formation</span><strong>{focusPossession.formation}</strong></div>
-                          <div><span>Phase</span><strong>{focusPossession.phase}</strong></div>
-                          <div><span>Zone</span><strong>{focusPossession.zone}</strong></div>
-                          <div><span>Outcome</span><strong>{focusPossession.outcome}</strong></div>
+                          <div><span>{ui.formation}</span><strong>{focusPossession.formation}</strong></div>
+                          <div><span>{ui.phase}</span><strong>{phaseLabel(focusPossession.phase, language)}</strong></div>
+                          <div><span>{ui.zone}</span><strong>{zoneLabel(focusPossession.zone, language)}</strong></div>
+                          <div><span>{ui.outcome}</span><strong>{focusPossession.outcome}</strong></div>
                         </div>
                         <div className="dd-players">
                           {focusPossession.players.map(p => (
@@ -1445,12 +2144,15 @@ function App() {
 
                     {focusView === "sequence" && (
                       <div className="dd-sequence">
-                        {focusPossession.path.map((point, i) => (
+                        {focusPossession.events.map((event, i) => (
                           <div key={`seq-${i}`} className="dd-seq-step">
                             <div className="dd-seq-num">{i + 1}</div>
                             <div>
-                              <strong>{point.label}</strong>
-                              <small>Zone ({Math.round(point.x)}, {Math.round(point.y)})</small>
+                              <strong>{event.player}</strong>
+                              <small>
+                                {event.type} · ({Math.round(event.startX)}, {Math.round(event.startY)}) → (
+                                {Math.round(event.endX)}, {Math.round(event.endY)})
+                              </small>
                             </div>
                           </div>
                         ))}
@@ -1460,16 +2162,18 @@ function App() {
                     {focusView === "context" && (
                       <div className="dd-context">
                         <div className="dd-stats-grid">
-                          <div><span>Scoreline</span><strong>{focusPossession.scoreline}</strong></div>
-                          <div><span>Game state</span><strong>{focusPossession.gameState}</strong></div>
-                          <div><span>Transition</span><strong>{focusPossession.transitionType}</strong></div>
-                          <div><span>Progression</span><strong>{focusPossession.progression}</strong></div>
+                          <div><span>{ui.scoreline}</span><strong>{focusPossession.scoreline}</strong></div>
+                          <div><span>{ui.gameState}</span><strong>{gameStateLabel(focusPossession.gameState, language)}</strong></div>
+                          <div><span>{ui.transition}</span><strong>{transitionLabel(focusPossession.transitionType, language)}</strong></div>
+                          <div><span>{ui.progression}</span><strong>{focusPossession.progression}</strong></div>
+                          <div><span>{language === "zh" ? "起始区域" : "Start zone"}</span><strong>{startZoneLabel(focusPossession.startZone, language)}</strong></div>
+                          <div><span>{language === "zh" ? "进入中场前传球数" : "Passes before middle-third access"}</span><strong>{focusPossession.descriptor.passesBeforeMiddleThird}</strong></div>
                         </div>
                         <div className="dd-rank-bars">
                           {[
-                            { label: "Signal fit", val: focusPossession.ranking.signal },
-                            { label: "Context fit", val: focusPossession.ranking.context },
-                            { label: "Diversity", val: focusPossession.ranking.diversity },
+                            { label: ui.signalFit, val: focusPossession.ranking.signal },
+                            { label: ui.contextFit, val: focusPossession.ranking.context },
+                            { label: ui.diversity, val: focusPossession.ranking.diversity },
                           ].map(({ label, val }) => (
                             <div key={label} className="dd-rank-bar">
                               <div className="dd-rank-bar-label">
@@ -1482,12 +2186,19 @@ function App() {
                             </div>
                           ))}
                         </div>
+                        <div className="mvp-reason-list">
+                          {focusPossession.retrievalReasons.map((reason) => (
+                            <span key={`${focusPossession.id}-${reason.key}`} className="mvp-reason-chip">
+                              {reason.label}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </>
                 ) : (
                   <div className="empty-state" style={{ paddingTop: "4rem" }}>
-                    Select a clip to analyze.
+                    {ui.selectClipToAnalyze}
                   </div>
                 )}
               </div>
@@ -1498,15 +2209,12 @@ function App() {
                <section className="panel compare-controls">
                   <div className="panel-heading">
                     <div>
-                      <SectionTypewriter text="Strategic Juxtaposition" />
+                      <SectionTypewriter text={ui.compareTitle} />
                     </div>
-                    <p className="panel-copy">
-                      Contrast tactical signatures across different match lanes.
-                    </p>
                   </div>
                   <div className="compare-picker">
                     <label>
-                      Left lane
+                      {ui.leftCompare}
                       <select value={leftOpponent} onChange={(e) => setLeftOpponent(e.target.value)}>
                         {opponents.map((opp) => (
                           <option key={opp}>{opp}</option>
@@ -1514,7 +2222,7 @@ function App() {
                       </select>
                     </label>
                     <label>
-                      Right lane
+                      {ui.rightCompare}
                       <select value={rightOpponent} onChange={(e) => setRightOpponent(e.target.value)}>
                         {opponents.map((opp) => (
                           <option key={opp}>{opp}</option>
@@ -1522,7 +2230,7 @@ function App() {
                       </select>
                     </label>
                     <div className="metric-switcher">
-                      {COMPARISON_METRICS.map((metric) => (
+                      {comparisonMetricOptions.map((metric) => (
                         <button
                           key={metric.key}
                           className={comparisonMetric === metric.key ? "metric-chip metric-chip--active" : "metric-chip"}
@@ -1535,11 +2243,12 @@ function App() {
 
                <ComparisonBoard
                   comparisonMetric={comparisonMetric}
-                  comparisonText={comparisonText}
-                  leftLabel={leftOpponent || "Lane A"}
-                  rightLabel={rightOpponent || "Lane B"}
+                  comparisonResult={comparisonResult}
+                  leftLabel={leftOpponent || ui.laneA}
+                  rightLabel={rightOpponent || ui.laneB}
                   leftItems={leftComparison}
                   rightItems={rightComparison}
+                  language={language}
                 />
 
                 <ExportPanel
@@ -1547,6 +2256,20 @@ function App() {
                   onCopy={handleCopy}
                   onDownload={handleDownload}
                   copyStatus={copyStatus}
+                  language={language}
+                />
+
+                <AssistantPanel
+                  messages={assistantMessages}
+                  draft={assistantDraft}
+                  onDraftChange={setAssistantDraft}
+                  onSend={handleAssistantSend}
+                  onReset={() => resetAssistantThread()}
+                  onUsePrompt={handleAssistantPrompt}
+                  quickPrompts={assistantQuickPrompts}
+                  isLoading={isAssistantLoading}
+                  statusLabel={assistantStatusLabel}
+                  language={language}
                 />
             </div>
           </div>
@@ -1564,17 +2287,14 @@ function App() {
         <section className="panel data-panel" id="ingest">
           <div className="panel-heading">
             <div>
-              <SectionTypewriter text="Data Loader" />
+              <SectionTypewriter text={ui.dataLoaderTitle} />
             </div>
-            <p className="panel-copy">
-              Initialize the tactical engine. Drop raw broadcast footage or feed structured telemetry to begin semantic processing.
-            </p>
           </div>
           <div className="ingest-grid">
             <div className="ingest-column">
               <div className="ingest-card">
                 <div className="ingest-card-head">
-                  <h3>Video analysis</h3>
+                  <h3>{ui.videoAnalysis}</h3>
                   <span
                     className={
                       engineStatus === "ready"
@@ -1585,10 +2305,10 @@ function App() {
                     }
                   >
                     {engineStatus === "ready"
-                      ? "Engine ready"
+                      ? ui.engineReady
                       : engineStatus === "offline"
-                        ? "Engine offline"
-                        : "Checking"}
+                        ? ui.engineOffline
+                        : ui.checking}
                   </span>
                 </div>
                 <div
@@ -1603,6 +2323,7 @@ function App() {
                     setIsDragActive(false);
                     await handleDroppedFiles(Array.from(event.dataTransfer.files));
                   }}
+                  onClick={() => videoInputRef.current?.click()}
                 >
                   <input
                     ref={videoInputRef}
@@ -1611,11 +2332,21 @@ function App() {
                     hidden
                     onChange={handleVideoInputChange}
                   />
-                  <strong>Drop one match video here</strong>
-                  <p>Supported: mp4, mov, m4v, avi, mkv, webm.</p>
-                  <div className="dropzone-actions">
-                    <button type="button" onClick={() => videoInputRef.current?.click()}>
-                      Choose video
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)", opacity: 0.8 }}>
+                    <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+                    <line x1="7" y1="2" x2="7" y2="22"></line>
+                    <line x1="17" y1="2" x2="17" y2="22"></line>
+                    <line x1="2" y1="12" x2="22" y2="12"></line>
+                    <line x1="2" y1="7" x2="7" y2="7"></line>
+                    <line x1="2" y1="17" x2="7" y2="17"></line>
+                    <line x1="17" y1="17" x2="22" y2="17"></line>
+                    <line x1="17" y1="7" x2="22" y2="7"></line>
+                  </svg>
+                  <strong>{ui.analyzeFootage}</strong>
+                  <p>{ui.analyzeFootageCopy}</p>
+                  <div className="dropzone-actions" onClick={(e) => e.stopPropagation()}>
+                    <button type="button" className="ghost-button" onClick={() => videoInputRef.current?.click()}>
+                      {ui.browseFiles}
                     </button>
                     <button
                       type="button"
@@ -1627,14 +2358,15 @@ function App() {
                       }}
                       disabled={!focusPossession?.fullVideoUrl}
                     >
-                      Open full source
+                      {ui.sourceStream}
                     </button>
                   </div>
                 </div>
                 <div className="ingest-form">
                   <label>
-                    Team
+                    {ui.projectTeam}
                     <input
+                      placeholder={language === "zh" ? "例如：Manchester City" : "e.g. Manchester City"}
                       value={videoInput.teamName}
                       onChange={(event) =>
                         setVideoInput((current) => ({
@@ -1645,8 +2377,9 @@ function App() {
                     />
                   </label>
                   <label>
-                    Opponent
+                    {ui.matchOpponent}
                     <input
+                      placeholder={language === "zh" ? "例如：Arsenal" : "e.g. Arsenal"}
                       value={videoInput.opponentName}
                       onChange={(event) =>
                         setVideoInput((current) => ({
@@ -1657,8 +2390,9 @@ function App() {
                     />
                   </label>
                   <label>
-                    Competition
+                    {ui.competition}
                     <input
+                      placeholder={language === "zh" ? "例如：UEFA Champions League" : "e.g. UEFA Champions League"}
                       value={videoInput.competition}
                       onChange={(event) =>
                         setVideoInput((current) => ({
@@ -1669,7 +2403,7 @@ function App() {
                     />
                   </label>
                   <label>
-                    Venue
+                    {ui.matchVenue}
                     <select
                       value={videoInput.venue}
                       onChange={(event) =>
@@ -1679,13 +2413,14 @@ function App() {
                         }))
                       }
                     >
-                      <option>Home</option>
-                      <option>Away</option>
+                      <option value="Home">{ui.homeMatch}</option>
+                      <option value="Away">{ui.awayMatch}</option>
                     </select>
                   </label>
                   <label>
-                    Scoreline
+                    {ui.finalScore}
                     <input
+                      placeholder="0-0"
                       value={videoInput.scoreline}
                       onChange={(event) =>
                         setVideoInput((current) => ({
@@ -1696,7 +2431,7 @@ function App() {
                     />
                   </label>
                   <label>
-                    Game state
+                    {ui.globalPhase}
                     <select
                       value={videoInput.gameState}
                       onChange={(event) =>
@@ -1706,28 +2441,28 @@ function App() {
                         }))
                       }
                     >
-                      <option>Winning</option>
-                      <option>Drawing</option>
-                      <option>Losing</option>
+                      <option value="Drawing">{ui.drawingState}</option>
+                      <option value="Winning">{ui.winningState}</option>
+                      <option value="Losing">{ui.losingState}</option>
                     </select>
                   </label>
                 </div>
                 {videoSummary ? (
                   <div className="video-summary-grid">
                     <div>
-                      <span>Duration</span>
+                      <span>{ui.duration}</span>
                       <strong>{videoSummary.videoDurationLabel}</strong>
                     </div>
                     <div>
-                      <span>Resolution</span>
+                      <span>{ui.resolution}</span>
                       <strong>{videoSummary.resolution}</strong>
                     </div>
                     <div>
-                      <span>Detected clips</span>
+                      <span>{ui.detectedClips}</span>
                       <strong>{videoSummary.momentCount}</strong>
                     </div>
                     <div>
-                      <span>Pitch confidence</span>
+                      <span>{ui.pitchConfidence}</span>
                       <strong>{Math.round(videoSummary.averagePitchConfidence * 100)}%</strong>
                     </div>
                   </div>
@@ -1738,10 +2473,13 @@ function App() {
             <div className="ingest-column">
               <div className="ingest-card">
                 <div className="ingest-card-head">
-                  <h3>Structured data</h3>
+                  <h3>{ui.structuredData}</h3>
                   <span className="source-pill">CSV / JSON</span>
                 </div>
-                <div className="dropzone dropzone--subtle">
+                <div
+                  className="dropzone dropzone--subtle"
+                  onClick={() => structuredInputRef.current?.click()}
+                >
                   <input
                     ref={structuredInputRef}
                     type="file"
@@ -1750,44 +2488,209 @@ function App() {
                     hidden
                     onChange={handleStructuredInputChange}
                   />
-                  <strong>Import event or possession files</strong>
-                  <p>Supported: PitchLens possession CSV/JSON and StatsBomb event JSON.</p>
-                  <div className="dropzone-actions">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)", opacity: 0.8 }}>
+                    <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"></path>
+                    <path d="M3 5v14a2 2 0 0 0 2 2h16v-5"></path>
+                    <path d="M18 12a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"></path>
+                  </svg>
+                  <strong>{ui.importTelemetry}</strong>
+                  <p>{ui.importTelemetryCopy}</p>
+                  <div className="dropzone-actions" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
+                      className="ghost-button"
                       onClick={() => structuredInputRef.current?.click()}
                     >
-                      Upload files
+                      {ui.importFiles}
                     </button>
                     <button
                       type="button"
                       className="ghost-button"
                       onClick={loadBundledDemo}
                     >
-                      Load Arsenal WFC demo
+                      {ui.libraryDemo}
                     </button>
                   </div>
                 </div>
+                <div className="provider-panel">
+                  <div className="provider-panel__head">
+                    <div>
+                      <h4>
+                        {language === "zh"
+                          ? "免费 StatsBomb Open Data"
+                          : "Free StatsBomb Open Data"}
+                      </h4>
+                      <p>
+                        {language === "zh"
+                          ? "直接从公开比赛事件库导入真实比赛。"
+                          : "Import real matches directly from the public event archive."}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={ensureStatsBombCatalog}
+                      disabled={isStatsBombLoading}
+                    >
+                      {isStatsBombLoading
+                        ? language === "zh"
+                          ? "加载中..."
+                          : "Loading..."
+                        : statsBombCompetitions.length
+                          ? language === "zh"
+                            ? "刷新"
+                            : "Refresh"
+                          : language === "zh"
+                            ? "连接"
+                            : "Connect"}
+                    </button>
+                  </div>
+
+                  {statsBombCompetitions.length ? (
+                    <div className="provider-controls">
+                      <label>
+                        {language === "zh" ? "赛事 / 赛季" : "Competition / season"}
+                        <select
+                          value={selectedCompetitionKey}
+                          onChange={(event) =>
+                            void loadStatsBombMatchesForCompetition(event.target.value)
+                          }
+                        >
+                          {statsBombCompetitions.map((competition) => (
+                            <option key={competition.key} value={competition.key}>
+                              {competition.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {selectedCompetition ? (
+                        <div className="provider-competition-meta">
+                          <span>{selectedCompetition.countryName}</span>
+                          <span>{selectedCompetition.competitionGender}</span>
+                          <span>{statsBombMatches.length} {language === "zh" ? "场比赛" : "matches"}</span>
+                        </div>
+                      ) : null}
+
+                      <label>
+                        {language === "zh" ? "比赛搜索" : "Match search"}
+                        <input
+                          value={statsBombMatchQuery}
+                          onChange={(event) => setStatsBombMatchQuery(event.target.value)}
+                          placeholder={
+                            language === "zh"
+                              ? "按球队、阶段或日期过滤"
+                              : "Filter by team, stage, or date"
+                          }
+                        />
+                      </label>
+
+                      <div className="provider-actions provider-actions--compact">
+                        <div className="provider-actions-group">
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() =>
+                              setSelectedMatchIds(
+                                filteredStatsBombMatches
+                                  .slice(0, Math.min(2, filteredStatsBombMatches.length))
+                                  .map((match) => match.matchId),
+                              )
+                            }
+                            disabled={!filteredStatsBombMatches.length}
+                          >
+                            {language === "zh" ? "选择前两场" : "Select first two"}
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => setSelectedMatchIds([])}
+                            disabled={!selectedMatchIds.length}
+                          >
+                            {language === "zh" ? "清空" : "Clear"}
+                          </button>
+                        </div>
+                        <span>
+                          {language === "zh"
+                            ? `${selectedMatchIds.length} 场已选`
+                            : `${selectedMatchIds.length} selected`}
+                        </span>
+                      </div>
+
+                      <div className="provider-match-list" role="list">
+                        {filteredStatsBombMatches.length ? (
+                          filteredStatsBombMatches.map((match) => {
+                            const isSelected = selectedMatchIds.includes(match.matchId);
+                            return (
+                              <button
+                                key={match.matchId}
+                                type="button"
+                                className={
+                                  isSelected
+                                    ? "provider-match-card provider-match-card--selected"
+                                    : "provider-match-card"
+                                }
+                                onClick={() => toggleStatsBombMatch(match.matchId)}
+                              >
+                                <div className="provider-match-card__main">
+                                  <strong>{match.homeTeam} vs {match.awayTeam}</strong>
+                                  <span>{match.matchDate}</span>
+                                </div>
+                                <div className="provider-match-card__meta">
+                                  <span>{match.competitionStage || (language === "zh" ? "常规比赛" : "Match")}</span>
+                                  <span>{match.scoreline || "–"}</span>
+                                </div>
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="provider-match-empty">
+                            {language === "zh"
+                              ? "当前筛选下没有比赛。"
+                              : "No matches for the current filter."}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="provider-actions">
+                        <button
+                          type="button"
+                          className="ghost-button"
+                          onClick={handleStatsBombImport}
+                          disabled={isStatsBombLoading || !selectedMatchIds.length}
+                        >
+                          {language === "zh"
+                            ? "导入所选比赛"
+                            : "Import selected matches"}
+                        </button>
+                        <span>
+                          {language === "zh"
+                            ? `将导入 ${selectedMatchIds.length} 场真实比赛`
+                            : `Will import ${selectedMatchIds.length} real matches`}
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
                 <div className="data-meta">
                   <div>
-                    <span>Current source</span>
+                    <span>{ui.activeDataset}</span>
                     <strong>{datasetLabel}</strong>
                   </div>
                   <div>
-                    <span>Status</span>
+                    <span>{ui.streamStatus}</span>
                     <strong>{ingestStatus}</strong>
                   </div>
                 </div>
                 <div className="data-actions">
-                  <button type="button" onClick={handleDownloadCurrentJson}>
-                    Export current JSON
+                  <button type="button" className="ghost-button" onClick={handleDownloadCurrentJson}>
+                    {ui.exportJson}
                   </button>
                   <button
                     type="button"
                     className="ghost-button"
                     onClick={handleDownloadCurrentCsv}
                   >
-                    Export current CSV
+                    {ui.exportCsv}
                   </button>
                 </div>
               </div>
