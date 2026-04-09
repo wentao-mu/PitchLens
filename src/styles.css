@@ -1072,15 +1072,6 @@ button {
   width: 100%;
 }
 
-.mini-pitch--360 {
-  filter: drop-shadow(0 20px 40px rgba(0,0,0,0.4));
-  transition: transform 0.3s ease;
-}
-
-.comparison-item:hover .mini-pitch--360 {
-  transform: scale(1.02);
-}
-
 .focus-meta {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

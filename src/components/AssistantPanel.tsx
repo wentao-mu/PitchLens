@@ -1,5 +1,5 @@
 import type { AssistantMessage } from "../types";
-import { UI_TEXT, type Language } from "../lib/i18n";
+import type { Language } from "../lib/i18n";
 
 type AssistantPanelProps = {
   messages: AssistantMessage[];
@@ -26,8 +26,6 @@ export function AssistantPanel({
   statusLabel,
   language,
 }: AssistantPanelProps) {
-  const ui = UI_TEXT[language];
-
   return (
     <section className="panel assistant-panel">
       <div className="panel-heading assistant-panel__head">

@@ -67,14 +67,6 @@ import type {
   VideoIngestInput,
 } from "./types";
 
-const HEADER_CHANNELS = [
-  { id: "match-centre" },
-  { id: "ingest" },
-  { id: "context-lock" },
-  { id: "rankings" },
-  { id: "analysis" },
-] as const;
-
 const COMPARISON_METRICS: ComparisonMetric[] = [
   "xThreat",
   "progression",
@@ -141,7 +133,7 @@ const DEFAULT_VIDEO_INPUT: VideoIngestInput = {
 const VIDEO_EXTENSIONS = [".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"];
 const DATA_EXTENSIONS = [".csv", ".json"];
 
-const metricValue = (metric: ComparisonMetric, values: number[]) =>
+const metricValue = (values: number[]) =>
   values.length
     ? values.reduce((sum, value) => sum + value, 0) / values.length
     : 0;
@@ -277,7 +269,6 @@ function App() {
     "Left overload release",
   );
   const [focusId, setFocusId] = useState<string>(allPossessions[0]?.id ?? "");
-  const [expandedId, setExpandedId] = useState<string>("");
   const [leftOpponent, setLeftOpponent] = useState<string>("");
   const [rightOpponent, setRightOpponent] = useState<string>("");
   const [comparisonMetric, setComparisonMetric] =
@@ -321,7 +312,7 @@ function App() {
   const [selectedMatchIds, setSelectedMatchIds] = useState<number[]>([]);
   const [statsBombMatchQuery, setStatsBombMatchQuery] = useState("");
   const [isStatsBombLoading, setIsStatsBombLoading] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   const structuredInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
@@ -586,11 +577,9 @@ function App() {
   const comparisonText = comparisonResult.summary;
 
   const leftComparisonMetric = metricValue(
-    comparisonMetric,
     leftComparison.map((item) => item[comparisonMetric]),
   );
   const rightComparisonMetric = metricValue(
-    comparisonMetric,
     rightComparison.map((item) => item[comparisonMetric]),
   );
 
@@ -821,7 +810,6 @@ function App() {
       setFilters(defaultScenarioFilters);
       setActiveSignal("Left overload release");
       setActivePresetId("mvp-build-up");
-      setExpandedId("");
       setFocusView("overview");
       setFocusId(normalizedPossessions[0]?.id ?? "");
       setPlayerMode("clip");
@@ -968,7 +956,6 @@ function App() {
       setFilters(defaultScenarioFilters);
       setActiveSignal("Left overload release");
       setActivePresetId("mvp-build-up");
-      setExpandedId("");
       setFocusView("overview");
       setFocusId(dataset.possessions[0]?.id ?? "");
       setPlayerMode("clip");

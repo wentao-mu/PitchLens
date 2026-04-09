@@ -24,7 +24,7 @@ import type {
   ValueBand,
   Zone,
 } from "../types";
-import { START_ZONES, TACTICAL_SIGNALS, ZONES } from "../types";
+import { START_ZONES, TACTICAL_SIGNALS } from "../types";
 
 const MIDLINE_X = 50;
 const LANE_CUTOFF_LEFT = 54;
@@ -450,16 +450,6 @@ export const clampMinuteRange = ([start, end]: MinuteRange): MinuteRange => {
 
 export const buildMinuteRangeLabel = ([start, end]: MinuteRange) =>
   start === 0 && end === 90 ? "0-90" : `${start}-${end}`;
-
-const buildTimeWindowFromMinute = (minute: number): TimeWindow => {
-  if (minute <= 30) {
-    return "0-30";
-  }
-  if (minute <= 60) {
-    return "31-60";
-  }
-  return "61-90";
-};
 
 const inMinuteRange = (minute: number, minuteRange: MinuteRange) =>
   minute >= minuteRange[0] && minute <= minuteRange[1];
@@ -1037,15 +1027,6 @@ export const buildComparisonSet = (
     language,
   ).slice(0, 5);
 
-export const summarizeComparison = (
-  left: RankedPossession[],
-  right: RankedPossession[],
-  leftOpponent: string,
-  rightOpponent: string,
-  language: Language = "zh",
-) =>
-  comparePossessionGroups(left, right, leftOpponent, rightOpponent, language).summary;
-
 export const generateTacticalNote = ({
   filters,
   activeSignal,
@@ -1248,8 +1229,3 @@ export const buildContextLockLabel = (
   ].join(" / ");
 
 export const getAvailableStartZones = () => START_ZONES;
-
-export const getAvailableZones = () => ZONES;
-
-export const getPossessionTimeWindow = (possession: Possession) =>
-  buildTimeWindowFromMinute(possession.minute);
