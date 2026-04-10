@@ -8,3 +8,12 @@ __pycache__
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+CS7450.pdf
+CS7450/*.aux
+CS7450/*.bbl
+CS7450/*.blg
+CS7450/*.brf
+CS7450/*.log
+CS7450/*.out
+CS7450/*.pdf
+CS7450/missfont.log

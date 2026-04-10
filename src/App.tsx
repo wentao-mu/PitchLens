@@ -1398,15 +1398,6 @@ function App() {
               {channel.label}
             </button>
           ))}
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() =>
-              setLanguage((current) => (current === "zh" ? "en" : "zh"))
-            }
-          >
-            {ui.langSwitch}
-          </button>
         </nav>
         <div className="header-status">
           <span>{ui.engine}</span>
@@ -1451,7 +1442,7 @@ function App() {
                 fontSize: "16px",
               }}
             >
-              GT Demo XI
+              Wentao Mou
             </div>
             <h1 className="antigravity-hero-text">
               {language === "zh"
