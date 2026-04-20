@@ -1,39 +1,70 @@
 # PitchLens
 
-PitchLens is a workflow-centered football analysis prototype. The primary MVP is event-first: it lets an analyst lock context filters, inspect summary signals, retrieve representative possessions, compare two matched opponent groups, and export an evidence-backed tactical note. The existing video workflow remains available as a secondary feature and can still turn broadcast footage into possessions for the same interface.
+PitchLens is a workflow-centered football tactical analysis prototype. The system is already runnable as a local web app and is built around one main question:
 
-## MVP workflow
+> How can an analyst move from a broad tactical idea to a small, explainable set of possessions, compare matched contexts fairly, and export evidence-backed conclusions?
 
-The default demo is built around this question:
+The current implementation supports an event-first analysis workflow as the primary path, while keeping video ingest and an AI assistant available as secondary extensions inside the same product surface.
 
-> Compare the same team's build-up possessions against two opponents when the score is tied, within the first 30 minutes, starting from the defensive third.
+## What is implemented
 
-The main screen supports:
+### Primary analysis workflow
 
-- Context filters: opponent, score state, phase, start zone, lane, and minute range
-- Pattern summary metrics: lane share, progression distance, passes before middle-third access, turnover-before-midline rate, and success-to-middle-third rate
-- Representative retrieval: 3 to 5 possessions ranked with explicit why-selected reasons
-- Fair comparison: side-by-side matched opponent groups with interpretable deltas
-- Export: a Markdown tactical note with the question, active filters, findings, evidence, and conclusion
+PitchLens currently supports this end-to-end loop:
 
-## What the system does
+1. Lock explicit context filters
+2. Inspect summary metrics and tactical signals
+3. Retrieve representative possessions with why-selected reasons
+4. Compare two matched possession groups side by side
+5. Export an evidence-backed tactical note
 
-- Ingest one video file and cut playable tactical clips with a local FastAPI + ffmpeg pipeline
-- Sample frames, score candidate moments, and convert them into PitchLens possessions with signal scores and comparison-ready metrics
-- Play the extracted clip or jump back into the full source video from the same focused evidence panel
-- Filter, rank, and compare clips across the same context lock
-- Export a Markdown tactical note with linked clip evidence
-- Ask a context-aware assistant about the current clip, comparison lock, or coaching takeaway
-- Still supports CSV/JSON possession import and bundled StatsBomb-style demo data
-- Supports free StatsBomb Open Data import through the local API
+### Data inputs
 
-## Stack
+The prototype already supports multiple input paths:
 
-- Frontend: Vite, React, TypeScript
-- Video engine: FastAPI, ffmpeg/ffprobe, Pillow, NumPy
-- Static demo data: bundled under `public/demo/`
+- Synthetic bundled sample data
+- Structured event import from local `CSV` / `JSON`
+- Free real-match import through StatsBomb Open Data
+- Match video upload through a local FastAPI + `ffmpeg` pipeline
 
-## Local setup
+### Secondary implemented features
+
+These are already present in the repo and should be treated as existing features, not future ideas:
+
+- Video clip extraction from uploaded match footage
+- A context-aware assistant that answers from the active analysis state
+- Local assistant inference through Ollama / Gemma 3
+- OpenAI-backed assistant replies when configured
+
+## Main pages
+
+The current UI is organized into five pages:
+
+- `Overview`
+  Current dataset, active lock, active signal, current comparison, and headline evidence
+- `Ingest`
+  Video upload, structured event import, and free StatsBomb Open Data import
+- `Filters`
+  Explicit context constraints plus the retrieval weighting formula
+- `Scenarios`
+  Summary metrics, presets, signal selection, and opponent board
+- `Deep Dive`
+  Ranked possessions, pitch or video inspection, sequence and context detail, comparison, export, and assistant
+
+## Standard demo path
+
+The most reliable demo path is:
+
+1. Open `Ingest`
+2. Use `Free StatsBomb Open Data`
+3. Import two real matches that share one common team
+4. Move to `Filters` and lock a build-up context
+5. Move to `Scenarios` and choose the signal to analyze
+6. Move to `Deep Dive` to inspect representative possessions, compare two opponents, export a tactical note, and query the assistant
+
+For a concrete walkthrough, see [docs/demo-path.md](/Users/carl/codex%20project/cs6750/docs/demo-path.md).
+
+## Quick start
 
 Install frontend dependencies:
 
@@ -41,7 +72,7 @@ Install frontend dependencies:
 npm install
 ```
 
-Set up the Python video engine:
+Set up the local Python API:
 
 ```bash
 npm run setup:api
@@ -55,30 +86,8 @@ npm run dev:full
 
 This starts:
 
-- Web UI at `http://127.0.0.1:4173/`
-- Video API at `http://127.0.0.1:8000/`
-
-## AI assistant
-
-The Deep Dive page includes a context-aware assistant. It reads the current analysis
-view, including the active context lock, focused clip, comparison summary, and
-export note.
-
-- By default, it tries Ollama first with `gemma3:4b`.
-- If you set `OPENAI_API_KEY`, the backend will call the OpenAI Responses API.
-- You can override the model with `PITCHLENS_AI_MODEL` if needed.
-- It can also use a free local model through Ollama. For example:
-
-```bash
-ollama serve
-ollama pull gemma3:4b
-export PITCHLENS_ASSISTANT_BACKEND=ollama
-export PITCHLENS_OLLAMA_MODEL=gemma3:4b
-npm run dev:api
-```
-
-- If you explicitly set `PITCHLENS_ASSISTANT_BACKEND=auto`, the backend tries OpenAI
-  first and then Ollama before falling back to the built-in local summary.
+- Web app at `http://127.0.0.1:4173/`
+- Local API at `http://127.0.0.1:8000/`
 
 You can also run them separately:
 
@@ -87,60 +96,79 @@ npm run dev:web
 npm run dev:api
 ```
 
-## Free real match data
+## Validation commands
 
-The `Ingest` page can connect to free StatsBomb Open Data through the local FastAPI
-backend. Use it to:
+```bash
+npm run typecheck
+npm run test
+npm run build
+```
 
-- load available competitions and seasons
-- browse free match lists
-- import one or more real event files directly into the event-first workflow
+## Free real-match import
 
-This flow uses the local endpoints:
+The local API exposes a free StatsBomb Open Data path:
 
 - `GET /api/statsbomb/competitions`
 - `GET /api/statsbomb/matches`
 - `POST /api/statsbomb/import`
 
-## Video workflow
+Use this when you want the cleanest event-first demo with real matches and no paid provider dependency.
 
-1. Open the `Ingest` panel.
-2. Fill in team, opponent, competition, venue, and score context.
-3. Upload one `mp4`, `mov`, `m4v`, `avi`, `mkv`, or `webm` file.
-4. PitchLens will:
-   - transcode a streamable master video
-   - sample frames from the feed
-   - score candidate tactical moments
-   - cut playable clips and posters
-   - return a possession-style evidence set to the UI
-5. Use the focus panel to switch between `Clip` and `Full match`.
+## Video ingest
 
-Generated video assets and analysis JSON are stored under:
+The `Ingest` page supports one uploaded match video at a time. The local backend:
 
-- `server/output/<job-id>/`
+- validates the file
+- samples candidate moments
+- cuts tactical clips
+- converts them into possession-style evidence
+- returns the result to the same analysis interface
 
-## Structured data workflow
+Supported video types:
 
-If you already have event data, the UI also accepts:
+- `.mp4`
+- `.mov`
+- `.m4v`
+- `.avi`
+- `.mkv`
+- `.webm`
 
-- PitchLens possession schema CSV
-- PitchLens possession schema JSON
-- StatsBomb-style raw event JSON arrays
+## AI assistant
 
-Use `Load Arsenal WFC demo` to load bundled public event data from:
+The `Deep Dive` page includes a context-aware assistant. It answers from the current analysis state, including:
 
-- `public/demo/statsbomb-arsenal-wfc/manifest.json`
-- `public/demo/statsbomb-arsenal-wfc/*.json`
+- current context lock
+- focused possession
+- ranked representative evidence
+- current comparison summary
+- exported tactical note
 
-## Build
+Supported assistant modes:
 
-```bash
-npm run build
-```
+- local fallback summary mode
+- Ollama local model mode
+- Gemma 3 via Ollama
+- OpenAI when configured
 
-## Typecheck and tests
+## Project structure
 
-```bash
-npm run typecheck
-npm run test
-```
+- [src/App.tsx](/Users/carl/codex%20project/cs6750/src/App.tsx): main UI orchestration
+- [src/lib/analytics.ts](/Users/carl/codex%20project/cs6750/src/lib/analytics.ts): event-first analysis logic
+- [src/lib/dataImport.ts](/Users/carl/codex%20project/cs6750/src/lib/dataImport.ts): structured data ingestion and normalization
+- [src/lib/openDataApi.ts](/Users/carl/codex%20project/cs6750/src/lib/openDataApi.ts): free StatsBomb API client
+- [src/lib/videoApi.ts](/Users/carl/codex%20project/cs6750/src/lib/videoApi.ts): frontend video ingest client
+- [src/lib/assistantApi.ts](/Users/carl/codex%20project/cs6750/src/lib/assistantApi.ts): assistant client
+- [server/main.py](/Users/carl/codex%20project/cs6750/server/main.py): local FastAPI entry point
+- [server/video_analysis.py](/Users/carl/codex%20project/cs6750/server/video_analysis.py): video-to-evidence pipeline
+- [server/assistant.py](/Users/carl/codex%20project/cs6750/server/assistant.py): assistant backend
+
+## Known boundaries
+
+PitchLens is already a working prototype, but it is still a research-oriented system rather than a polished production platform.
+
+Current boundaries:
+
+- The primary workflow is event-first
+- Video and assistant features are implemented, but they are extensions around the same main workflow
+- The frontend still centralizes a large amount of orchestration inside `src/App.tsx`
+- The best current path for stable demo and evaluation is still the event-first real-data workflow

@@ -256,12 +256,12 @@ function SectionTypewriter({ text }: { text: string }) {
 }
 
 function App() {
-  const [language, setLanguage] = useState<Language>("zh");
+  const [language, setLanguage] = useState<Language>("en");
   const ui = UI_TEXT[language];
   const [sourcePossessions, setSourcePossessions] =
     useState<Possession[]>(allPossessions);
   const [datasetLabel, setDatasetLabel] = useState<string>(
-    DEFAULT_DATASET_LABEL.zh,
+    DEFAULT_DATASET_LABEL.en,
   );
   const [analysisTeam, setAnalysisTeam] = useState(TARGET_TEAM);
   const [filters, setFilters] = useState<ContextFilters>(defaultScenarioFilters);
@@ -278,7 +278,7 @@ function App() {
     useState<(typeof FOCUS_VIEW_IDS)[number]>("overview");
   const [copyStatus, setCopyStatus] = useState("");
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>(
-    () => [buildAssistantWelcome("Left overload release", "zh")],
+    () => [buildAssistantWelcome("Left overload release", "en")],
   );
   const [assistantDraft, setAssistantDraft] = useState("");
   const [assistantStatusLabel, setAssistantStatusLabel] = useState<string>(
@@ -1398,6 +1398,15 @@ function App() {
               {channel.label}
             </button>
           ))}
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() =>
+              setLanguage((current) => (current === "zh" ? "en" : "zh"))
+            }
+          >
+            {ui.langSwitch}
+          </button>
         </nav>
         <div className="header-status">
           <span>{ui.engine}</span>
