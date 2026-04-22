@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   useTransition,
+  type MouseEvent,
 } from "react";
 import { AssistantPanel } from "./components/AssistantPanel";
 import { ComparisonBoard } from "./components/ComparisonBoard";
@@ -26,6 +27,8 @@ import {
   getFormationTendencies,
   normalizePossessionSet,
   rankRepresentativePossessions,
+  recommendVideoFilters,
+  selectDominantSignal,
   timeWindowToRange,
 } from "./lib/analytics";
 import { askAssistant } from "./lib/assistantApi";
@@ -50,7 +53,11 @@ import {
   zoneLabel,
   type Language,
 } from "./lib/i18n";
-import { analyzeVideoFile, getVideoEngineHealth } from "./lib/videoApi";
+import {
+  analyzeVideoFile,
+  analyzeVideoUrl,
+  getVideoEngineHealth,
+} from "./lib/videoApi";
 import type {
   AssistantMessage,
   ComparisonMetric,
@@ -132,6 +139,19 @@ const DEFAULT_VIDEO_INPUT: VideoIngestInput = {
 
 const VIDEO_EXTENSIONS = [".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"];
 const DATA_EXTENSIONS = [".csv", ".json"];
+const DEFAULT_DEMO_YOUTUBE_URL =
+  "https://www.youtube.com/watch?v=F81ZM-ZG6-g&t=1800s";
+const DEFAULT_DEMO_YOUTUBE_SOURCE = {
+  videoId: "F81ZM-ZG6-g",
+  url: DEFAULT_DEMO_YOUTUBE_URL,
+  kickoffOffsetSec: 1800,
+} as const;
+
+type LinkedYoutubeSource = {
+  videoId: string;
+  url: string;
+  kickoffOffsetSec: number;
+};
 
 const metricValue = (values: number[]) =>
   values.length
@@ -145,6 +165,95 @@ const formatClock = (seconds: number) => {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.floor(seconds % 60);
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
+};
+
+const parseYouTubeVideoId = (rawUrl: string) => {
+  try {
+    const parsed = new URL(rawUrl.trim());
+    const host = parsed.hostname.replace(/^www\./, "");
+
+    if (host === "youtu.be") {
+      const candidate = parsed.pathname.split("/").filter(Boolean)[0];
+      return candidate || null;
+    }
+
+    if (host === "youtube.com" || host === "m.youtube.com") {
+      if (parsed.pathname === "/watch") {
+        return parsed.searchParams.get("v");
+      }
+
+      if (
+        parsed.pathname.startsWith("/embed/") ||
+        parsed.pathname.startsWith("/shorts/")
+      ) {
+        const candidate = parsed.pathname.split("/").filter(Boolean)[1];
+        return candidate || null;
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+const buildYouTubeEmbedUrl = (videoId: string, startSec = 0) => {
+  const params = new URLSearchParams({
+    start: String(Math.max(0, Math.floor(startSec))),
+    rel: "0",
+    autoplay: "0",
+  });
+  return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
+};
+
+const buildYouTubeWatchUrl = (videoId: string, startSec = 0) => {
+  const params = new URLSearchParams({
+    v: videoId,
+  });
+  if (startSec > 0) {
+    params.set("t", `${Math.floor(startSec)}s`);
+  }
+  return `https://www.youtube.com/watch?${params.toString()}`;
+};
+
+const buildPlaybackWindow = (
+  possession: Possession | null,
+  playerMode: "clip" | "full",
+  fallbackDurationSec?: number,
+) => {
+  if (!possession) {
+    return null;
+  }
+
+  if (playerMode === "full") {
+    const startSec = possession.videoStartSec ?? possession.minute * 60;
+    const endSec =
+      possession.videoEndSec ??
+      startSec +
+        Math.max(
+          possession.durationSec,
+          fallbackDurationSec && Number.isFinite(fallbackDurationSec)
+            ? fallbackDurationSec
+            : 1,
+        );
+
+    return {
+      startSec,
+      endSec,
+      durationSec: Math.max(1, endSec - startSec),
+    };
+  }
+
+  const endSec =
+    fallbackDurationSec && Number.isFinite(fallbackDurationSec) && fallbackDurationSec > 0
+      ? fallbackDurationSec
+      : Math.max(possession.durationSec, 1);
+
+  return {
+    startSec: 0,
+    endSec,
+    durationSec: Math.max(1, endSec),
+  };
 };
 
 const buildMessageId = () =>
@@ -299,9 +408,18 @@ function App() {
   const [isAssistantLoading, setIsAssistantLoading] = useState(false);
   const [videoInput, setVideoInput] =
     useState<VideoIngestInput>(DEFAULT_VIDEO_INPUT);
+  const [youtubeUrlDraft, setYoutubeUrlDraft] = useState(
+    DEFAULT_DEMO_YOUTUBE_URL,
+  );
+  const [youtubeKickoffOffsetSec, setYoutubeKickoffOffsetSec] = useState(
+    String(DEFAULT_DEMO_YOUTUBE_SOURCE.kickoffOffsetSec),
+  );
+  const [linkedYoutubeSource, setLinkedYoutubeSource] =
+    useState<LinkedYoutubeSource | null>(null);
   const [playerMode, setPlayerMode] = useState<"clip" | "full">("clip");
   const [videoPlaying, setVideoPlaying] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
+  const [videoCurrentSec, setVideoCurrentSec] = useState(0);
   const [isMediaMode, setIsMediaMode] = useState<"pitch" | "video">("pitch");
   const [currentPage, setCurrentPage] = useState<string>("match-centre");
   const [statsBombCompetitions, setStatsBombCompetitions] = useState<
@@ -451,17 +569,6 @@ function App() {
   }, [assistantStatusLabel, language]);
 
   useEffect(() => {
-    const canvas = document.getElementById("antigravity-particles");
-    if (canvas) {
-      if (currentPage === "match-centre") {
-        canvas.classList.remove("particle-canvas--hidden");
-      } else {
-        canvas.classList.add("particle-canvas--hidden");
-      }
-    }
-  }, [currentPage]);
-
-  useEffect(() => {
     let cancelled = false;
 
     getVideoEngineHealth()
@@ -534,12 +641,45 @@ function App() {
     deferredRanked[0] ??
     timelineMoments[0] ??
     null;
-
-  const playerSrc = focusPossession
+  const nativePlayerSrc = focusPossession
     ? playerMode === "full"
       ? focusPossession.fullVideoUrl ?? focusPossession.videoClipUrl ?? ""
       : focusPossession.videoClipUrl ?? focusPossession.fullVideoUrl ?? ""
     : "";
+  const linkedYouTubeWindow =
+    linkedYoutubeSource && focusPossession
+      ? {
+          startSec:
+            linkedYoutubeSource.kickoffOffsetSec +
+            (focusPossession.videoStartSec ?? focusPossession.minute * 60),
+          endSec:
+            linkedYoutubeSource.kickoffOffsetSec +
+            (focusPossession.videoEndSec ??
+              (focusPossession.videoStartSec ?? focusPossession.minute * 60) +
+                focusPossession.durationSec),
+        }
+      : null;
+  const useLinkedYoutubeSource = Boolean(
+    linkedYouTubeWindow && !nativePlayerSrc,
+  );
+  const youtubeEmbedSrc =
+    useLinkedYoutubeSource && linkedYoutubeSource && linkedYouTubeWindow
+      ? buildYouTubeEmbedUrl(
+          linkedYoutubeSource.videoId,
+          linkedYouTubeWindow.startSec,
+        )
+      : "";
+  const youtubeWatchUrl =
+    useLinkedYoutubeSource && linkedYoutubeSource && linkedYouTubeWindow
+      ? buildYouTubeWatchUrl(
+          linkedYoutubeSource.videoId,
+          linkedYouTubeWindow.startSec,
+        )
+      : "";
+  const linkedYoutubeLabel = linkedYoutubeSource
+    ? `YouTube · ${linkedYoutubeSource.videoId}`
+    : "";
+  const playerSrc = nativePlayerSrc;
 
   const comparisonLabel =
     comparisonMetricOptions.find((metric) => metric.key === comparisonMetric)
@@ -710,6 +850,20 @@ function App() {
   const timelineMarks = videoSummary
     ? [0, timelineRangeSec / 3, (timelineRangeSec / 3) * 2, timelineRangeSec]
     : [0, 30 * 60, 60 * 60, 90 * 60];
+  const focusTimelineIndex = focusPossession
+    ? timelineMoments.findIndex((moment) => moment.id === focusPossession.id)
+    : -1;
+  const previousTimelineMoment =
+    focusTimelineIndex > 0 ? timelineMoments[focusTimelineIndex - 1] : null;
+  const nextTimelineMoment =
+    focusTimelineIndex >= 0 && focusTimelineIndex < timelineMoments.length - 1
+      ? timelineMoments[focusTimelineIndex + 1]
+      : null;
+  const playbackWindow = buildPlaybackWindow(
+    focusPossession,
+    playerMode,
+    videoRef.current?.duration,
+  );
 
   useEffect(() => {
     if (!focusPossession && deferredRanked[0]) {
@@ -728,12 +882,14 @@ function App() {
     if (!player) {
       setVideoPlaying(false);
       setVideoProgress(0);
+      setVideoCurrentSec(0);
       return;
     }
 
     player.pause();
     setVideoPlaying(false);
     setVideoProgress(0);
+    setVideoCurrentSec(0);
 
     if (playerMode === "full" && focusPossession?.videoStartSec != null && player.readyState >= 1) {
       player.currentTime = focusPossession.videoStartSec;
@@ -746,21 +902,49 @@ function App() {
     if (!player || !focusPossession) {
       setVideoPlaying(false);
       setVideoProgress(0);
+      setVideoCurrentSec(0);
       return;
     }
 
-    if (playerMode === "full" && focusPossession.videoStartSec != null) {
-      const startSec = focusPossession.videoStartSec;
-      const endSec = focusPossession.videoEndSec ?? player.duration ?? startSec + 1;
-      const windowDuration = Math.max(1, endSec - startSec);
-      const relativeProgress = _clamp01((player.currentTime - startSec) / windowDuration);
-      setVideoProgress(relativeProgress);
-    } else {
-      const duration = Number.isFinite(player.duration) && player.duration > 0 ? player.duration : 1;
-      setVideoProgress(_clamp01(player.currentTime / duration));
+    const window = buildPlaybackWindow(focusPossession, playerMode, player.duration);
+    if (!window) {
+      setVideoPlaying(false);
+      setVideoProgress(0);
+      setVideoCurrentSec(0);
+      return;
     }
 
-    setVideoPlaying(!player.paused && !player.ended);
+    let currentTime = player.currentTime;
+
+    if (playerMode === "full") {
+      if (currentTime < window.startSec) {
+        currentTime = window.startSec;
+        player.currentTime = currentTime;
+      }
+
+      if (currentTime >= window.endSec) {
+        currentTime = window.endSec;
+        player.currentTime = currentTime;
+        if (!player.paused) {
+          player.pause();
+        }
+      }
+
+      setVideoProgress(
+        _clamp01((currentTime - window.startSec) / window.durationSec),
+      );
+      setVideoCurrentSec(currentTime);
+      setVideoPlaying(!player.paused && currentTime < window.endSec);
+      return;
+    }
+
+    if (currentTime >= window.endSec) {
+      currentTime = window.endSec;
+    }
+
+    setVideoProgress(_clamp01(currentTime / window.durationSec));
+    setVideoCurrentSec(currentTime);
+    setVideoPlaying(!player.paused && !player.ended && currentTime < window.endSec);
   };
 
   const seekFullVideoToFocus = () => {
@@ -773,6 +957,45 @@ function App() {
       player.currentTime = focusPossession.videoStartSec;
       syncVideoMetrics();
     }
+  };
+
+  const stepTimelineFocus = (direction: -1 | 1) => {
+    const nextMoment = direction < 0 ? previousTimelineMoment : nextTimelineMoment;
+    if (!nextMoment) {
+      return;
+    }
+
+    setFocusId(nextMoment.id);
+    setIsMediaMode("video");
+  };
+
+  const seekVideoToProgress = (nextProgress: number) => {
+    const player = videoRef.current;
+    const window = buildPlaybackWindow(
+      focusPossession,
+      playerMode,
+      player?.duration,
+    );
+    if (!player || !window) {
+      return;
+    }
+
+    player.currentTime = window.startSec + _clamp01(nextProgress) * window.durationSec;
+    syncVideoMetrics();
+  };
+
+  const handleVideoProgressClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if (!playerSrc) {
+      return;
+    }
+
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (!bounds.width) {
+      return;
+    }
+
+    const nextProgress = (event.clientX - bounds.left) / bounds.width;
+    seekVideoToProgress(nextProgress);
   };
 
   const togglePlayback = async () => {
@@ -801,20 +1024,25 @@ function App() {
 
   const applyVideoResult = (result: VideoAnalysisResult, sourceLabel: string) => {
     const normalizedPossessions = normalizePossessionSet(result.possessions);
+    const recommendedFilters = recommendVideoFilters(normalizedPossessions);
+    const dominantSignal = selectDominantSignal(normalizedPossessions);
     startTransition(() => {
       setSourceMode("video");
       setVideoSummary(result.summary);
+      setLinkedYoutubeSource(null);
       setSourcePossessions(normalizedPossessions);
       setDatasetLabel(result.datasetLabel);
       setAnalysisTeam(result.analysisTeam);
-      setFilters(defaultScenarioFilters);
-      setActiveSignal("Left overload release");
-      setActivePresetId("mvp-build-up");
+      setFilters(recommendedFilters);
+      setActiveSignal(dominantSignal);
+      setActivePresetId("custom");
       setFocusView("overview");
       setFocusId(normalizedPossessions[0]?.id ?? "");
       setPlayerMode("clip");
+      setIsMediaMode("video");
+      setCurrentPage("analysis");
     });
-    resetAssistantThread("Left overload release");
+    resetAssistantThread(dominantSignal);
     setIngestStatus(
       language === "zh"
         ? `已分析 ${sourceLabel}：从 ${result.summary.videoDurationLabel} 的视频中抽取出 ${result.summary.momentCount} 个候选片段。`
@@ -950,6 +1178,7 @@ function App() {
     startTransition(() => {
       setSourceMode("events");
       setVideoSummary(null);
+      setLinkedYoutubeSource(null);
       setSourcePossessions(normalizePossessionSet(dataset.possessions));
       setDatasetLabel(nextDatasetLabel);
       setAnalysisTeam(nextTeam);
@@ -959,6 +1188,7 @@ function App() {
       setFocusView("overview");
       setFocusId(dataset.possessions[0]?.id ?? "");
       setPlayerMode("clip");
+      setIsMediaMode("pitch");
     });
     resetAssistantThread("Left overload release");
   };
@@ -1259,6 +1489,53 @@ function App() {
     }
   };
 
+  const analyzeYouTubeVideo = async (url: string) => {
+    if (!parseYouTubeVideoId(url)) {
+      setIngestError(
+        language === "zh"
+          ? "请输入有效的 YouTube 视频链接。"
+          : "Enter a valid YouTube video URL.",
+      );
+      return;
+    }
+
+    if (engineStatus === "offline") {
+      setIngestError(
+        language === "zh"
+          ? "视频引擎离线，请先启动 8000 端口上的 FastAPI 服务。"
+          : "Video engine offline. Start the FastAPI service on port 8000.",
+      );
+      return;
+    }
+
+    try {
+      setIngestError("");
+      setIsVideoAnalyzing(true);
+      setIngestStatus(
+        language === "zh"
+          ? "正在从 YouTube 拉取视频并进行分析..."
+          : "Downloading the YouTube video and running local analysis...",
+      );
+      const result = await analyzeVideoUrl(url, videoInput);
+      applyVideoResult(result, "YouTube source");
+    } catch (error) {
+      setIngestError(
+        error instanceof Error
+          ? error.message
+          : language === "zh"
+            ? "YouTube 视频分析失败。"
+            : "YouTube analysis failed.",
+      );
+      setIngestStatus(
+        language === "zh"
+          ? "YouTube 视频分析失败。"
+          : "YouTube analysis failed.",
+      );
+    } finally {
+      setIsVideoAnalyzing(false);
+    }
+  };
+
   const handleStructuredInputChange = async (
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
@@ -1324,7 +1601,53 @@ function App() {
     );
   };
 
-  const loadBundledDemo = async () => {
+  const handleYoutubeLink = () => {
+    const videoId = parseYouTubeVideoId(youtubeUrlDraft);
+    const kickoffOffsetSec = Number(youtubeKickoffOffsetSec);
+
+    if (!videoId) {
+      setIngestError(
+        language === "zh"
+          ? "请输入有效的 YouTube 视频链接。"
+          : "Enter a valid YouTube video URL.",
+      );
+      return;
+    }
+
+    if (!Number.isFinite(kickoffOffsetSec) || kickoffOffsetSec < 0) {
+      setIngestError(
+        language === "zh"
+          ? "开球偏移必须是大于等于 0 的秒数。"
+          : "Kickoff offset must be a non-negative number of seconds.",
+      );
+      return;
+    }
+
+    setLinkedYoutubeSource({
+      videoId,
+      url: youtubeUrlDraft.trim(),
+      kickoffOffsetSec: Math.floor(kickoffOffsetSec),
+    });
+    setIngestError("");
+    setIsMediaMode("video");
+    setIngestStatus(
+      language === "zh"
+        ? "已将当前工作区链接到 YouTube 视频源。"
+        : "Linked the current workspace to a YouTube video source.",
+    );
+  };
+
+  const handleLoadYoutubeDemo = () => {
+    setYoutubeUrlDraft(DEFAULT_DEMO_YOUTUBE_URL);
+    setYoutubeKickoffOffsetSec(
+      String(DEFAULT_DEMO_YOUTUBE_SOURCE.kickoffOffsetSec),
+    );
+    void analyzeYouTubeVideo(DEFAULT_DEMO_YOUTUBE_URL);
+  };
+
+  const loadBundledDemo = async (options?: { onStartup?: boolean }) => {
+    const isStartup = options?.onStartup ?? false;
+
     try {
       setIngestError("");
       setIngestStatus(
@@ -1360,6 +1683,16 @@ function App() {
           : `Loaded ${manifest.datasetLabel}.`,
       );
     } catch (error) {
+      if (isStartup) {
+        setIngestError("");
+        setIngestStatus(
+          language === "zh"
+            ? "内置真实比赛示例不可用，已保留本地样本数据。"
+            : "Bundled real-match demo unavailable. Kept the local sample dataset.",
+        );
+        return;
+      }
+
       setIngestError(
         error instanceof Error
           ? error.message
@@ -1377,7 +1710,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <div className={`app-background ${currentPage === "match-centre" ? "" : "app-background--hidden"}`} />
+      <div className="app-background" />
       <header className="global-header">
         <div className="brand-lockup">
           <div className="brand-mark" style={{ background: "transparent", border: "none", boxShadow: "none", padding: 0, width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1499,6 +1832,17 @@ function App() {
                       : `${normalizedTeamPossessions.length} possessions available for event analysis`}
                 </small>
               </article>
+              {linkedYoutubeSource ? (
+                <article className="scenario-summary-card scenario-summary-card--source">
+                  <span>{ui.linkedVideoSource}</span>
+                  <strong>{linkedYoutubeLabel}</strong>
+                  <small>
+                    {language === "zh"
+                      ? `开球偏移 ${linkedYoutubeSource.kickoffOffsetSec} 秒`
+                      : `Kickoff offset ${linkedYoutubeSource.kickoffOffsetSec}s`}
+                  </small>
+                </article>
+              ) : null}
               <article className="scenario-summary-card">
                 <span>{language === "zh" ? "当前锁定" : "Current lock"}</span>
                 <strong>{contextLabel}</strong>
@@ -1989,7 +2333,7 @@ function App() {
 
               {/* CENTER: Spatial/Video Workspace */}
               <div className="dd-pitch-col">
-                  <div className="dd-panel-label">
+                <div className="dd-panel-label">
                   <div className="dd-media-switcher">
                     <button 
                       className={isMediaMode === "pitch" ? "active" : ""} 
@@ -2001,6 +2345,12 @@ function App() {
                     >{ui.sourceVideo}</button>
                   </div>
                   <small>{isMediaMode === "pitch" ? ui.tacticalView : ui.broadcastView}</small>
+                  {linkedYoutubeSource ? (
+                    <div className="linked-source-badge">
+                      <span>{ui.linkedVideoSource}</span>
+                      <strong>{linkedYoutubeLabel}</strong>
+                    </div>
+                  ) : null}
                 </div>
                 
                 {focusPossession ? (
@@ -2018,7 +2368,15 @@ function App() {
                     ) : (
                       <div className="video-room">
                         <div className="video-screen">
-                          {playerSrc ? (
+                          {useLinkedYoutubeSource && youtubeEmbedSrc ? (
+                            <iframe
+                              key={youtubeEmbedSrc}
+                              src={youtubeEmbedSrc}
+                              title={focusPossession.title}
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                              allowFullScreen
+                            />
+                          ) : playerSrc ? (
                             <video
                               key={playerSrc}
                               ref={videoRef}
@@ -2038,6 +2396,13 @@ function App() {
                               onEnded={() => {
                                 setVideoPlaying(false);
                                 setVideoProgress(1);
+                                setVideoCurrentSec(
+                                  buildPlaybackWindow(
+                                    focusPossession,
+                                    playerMode,
+                                    videoRef.current?.duration,
+                                  )?.endSec ?? 0,
+                                );
                               }}
                               onTimeUpdate={syncVideoMetrics}
                             />
@@ -2045,33 +2410,112 @@ function App() {
                             <div className="video-placeholder">{ui.noLinkedVideo}</div>
                           )}
                           <div className="video-overlay">
-                            <div className="video-overlay-actions">
+                            {useLinkedYoutubeSource && linkedYouTubeWindow ? (
+                              <div className="video-overlay-meta">
+                                <span>
+                                  {ui.currentWindow} {formatClock(linkedYouTubeWindow.startSec)}-{formatClock(linkedYouTubeWindow.endSec)}
+                                </span>
+                                <span>{ui.youtubeLinked}</span>
+                              </div>
+                            ) : playbackWindow ? (
+                              <div className="video-overlay-meta">
+                                <span>
+                                  {ui.currentWindow} {formatClock(playbackWindow.startSec)}-{formatClock(playbackWindow.endSec)}
+                                </span>
+                                <span>
+                                  {ui.currentTime} {formatClock(videoCurrentSec)}
+                                </span>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                        {!useLinkedYoutubeSource && (
+                          <button
+                            type="button"
+                            className="video-progress video-progress--interactive"
+                            onClick={handleVideoProgressClick}
+                            disabled={!playerSrc}
+                            aria-label={ui.scrubVideo}
+                          >
+                            <i style={{ width: `${videoProgress * 100}%` }} />
+                            <span
+                              className="video-progress-handle"
+                              style={{ left: `${videoProgress * 100}%` }}
+                            />
+                          </button>
+                        )}
+                        {!useLinkedYoutubeSource && playbackWindow ? (
+                          <div className="video-progress-scale">
+                            <span>{formatClock(playbackWindow.startSec)}</span>
+                            <span>{formatClock(playbackWindow.endSec)}</span>
+                          </div>
+                        ) : null}
+                        <div className="video-toolbar">
+                          <div className="video-nav-group">
+                            <button
+                              type="button"
+                              className="video-control"
+                              onClick={() => stepTimelineFocus(-1)}
+                              disabled={!previousTimelineMoment}
+                            >
+                              {ui.previousClip}
+                            </button>
+                            {!useLinkedYoutubeSource && (
                               <button
                                 type="button"
                                 className="video-control"
                                 onClick={togglePlayback}
+                                disabled={!playerSrc}
                               >
                                 {videoPlaying ? ui.pause : videoProgress >= 1 ? ui.replay : ui.play}
                               </button>
-                              {focusPossession.fullVideoUrl && (
-                                <div className="video-mode-switcher">
-                                  <button
-                                    type="button"
-                                    className={playerMode === "clip" ? "video-mode-chip video-mode-chip--active" : "video-mode-chip"}
-                                    onClick={() => setPlayerMode("clip")}
-                                  >{ui.clip}</button>
-                                  <button
-                                    type="button"
-                                    className={playerMode === "full" ? "video-mode-chip video-mode-chip--active" : "video-mode-chip"}
-                                    onClick={() => setPlayerMode("full")}
-                                  >{ui.fullMatch}</button>
-                                </div>
-                              )}
-                            </div>
+                            )}
+                            <button
+                              type="button"
+                              className="video-control"
+                              onClick={() => stepTimelineFocus(1)}
+                              disabled={!nextTimelineMoment}
+                            >
+                              {ui.nextClip}
+                            </button>
                           </div>
-                        </div>
-                        <div className="video-progress">
-                           <i style={{ width: `${videoProgress * 100}%` }} />
+                          <div className="video-toolbar-secondary">
+                            {!useLinkedYoutubeSource &&
+                              playerMode === "full" &&
+                              focusPossession?.videoStartSec != null && (
+                              <button
+                                type="button"
+                                className="video-control"
+                                onClick={seekFullVideoToFocus}
+                                disabled={!playerSrc}
+                              >
+                                {ui.clipStart}
+                              </button>
+                            )}
+                            {useLinkedYoutubeSource && youtubeWatchUrl ? (
+                              <button
+                                type="button"
+                                className="video-control"
+                                onClick={() => window.open(youtubeWatchUrl, "_blank", "noopener,noreferrer")}
+                              >
+                                {ui.openYoutube}
+                              </button>
+                            ) : null}
+                            {!useLinkedYoutubeSource && focusPossession.fullVideoUrl && (
+                              <div className="video-mode-switcher">
+                                <button
+                                  type="button"
+                                  className={playerMode === "clip" ? "video-mode-chip video-mode-chip--active" : "video-mode-chip"}
+                                  onClick={() => setPlayerMode("clip")}
+                                >{ui.clip}</button>
+                                <button
+                                  type="button"
+                                  className={playerMode === "full" ? "video-mode-chip video-mode-chip--active" : "video-mode-chip"}
+                                  onClick={() => setPlayerMode("full")}
+                                >{ui.fullMatch}</button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -2493,7 +2937,9 @@ function App() {
                     <button
                       type="button"
                       className="ghost-button"
-                      onClick={loadBundledDemo}
+                      onClick={() => {
+                        void loadBundledDemo();
+                      }}
                     >
                       {ui.libraryDemo}
                     </button>
@@ -2658,7 +3104,74 @@ function App() {
                     </div>
                   ) : null}
                 </div>
+                <div className="provider-panel">
+                  <div className="provider-panel__head">
+                    <div>
+                      <h4>{ui.youtubeMode}</h4>
+                      <p>{ui.youtubeModeCopy}</p>
+                    </div>
+                  </div>
+                  <div className="provider-controls">
+                    <label>
+                      {ui.youtubeUrl}
+                      <input
+                        value={youtubeUrlDraft}
+                        onChange={(event) => setYoutubeUrlDraft(event.target.value)}
+                        placeholder="https://www.youtube.com/watch?v=..."
+                      />
+                    </label>
+                    <label>
+                      {ui.kickoffOffset}
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={youtubeKickoffOffsetSec}
+                        onChange={(event) => setYoutubeKickoffOffsetSec(event.target.value)}
+                      />
+                    </label>
+                    <div className="provider-actions">
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={handleLoadYoutubeDemo}
+                        disabled={isVideoAnalyzing}
+                      >
+                        {ui.loadYoutubeDemo}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => void analyzeYouTubeVideo(youtubeUrlDraft)}
+                        disabled={!youtubeUrlDraft.trim() || isVideoAnalyzing}
+                      >
+                        {ui.analyzeYoutube}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={handleYoutubeLink}
+                        disabled={!youtubeUrlDraft.trim() || isVideoAnalyzing}
+                      >
+                        {ui.linkYoutube}
+                      </button>
+                      <span>
+                        {linkedYoutubeSource
+                          ? language === "zh"
+                            ? `当前已链接 YouTube：${linkedYoutubeSource.videoId}`
+                            : `Currently linked to YouTube: ${linkedYoutubeSource.videoId}`
+                          : `${ui.youtubeDemoMeta} · ${ui.youtubeModeMeta}`}
+                      </span>
+                    </div>
+                  </div>
+                </div>
                 <div className="data-meta">
+                  {linkedYoutubeSource ? (
+                    <div>
+                      <span>{ui.linkedVideoSource}</span>
+                      <strong>{linkedYoutubeLabel}</strong>
+                    </div>
+                  ) : null}
                   <div>
                     <span>{ui.activeDataset}</span>
                     <strong>{datasetLabel}</strong>

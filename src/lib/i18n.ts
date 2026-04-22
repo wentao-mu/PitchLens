@@ -11,8 +11,8 @@ import type {
 export type Language = "en" | "zh";
 
 export const DEFAULT_DATASET_LABEL: Record<Language, string> = {
-  en: "StatsBomb Open Data (UCL 2023/24)",
-  zh: "StatsBomb 开放数据（UCL 2023/24）",
+  en: "PitchLens Curated Sample",
+  zh: "PitchLens 精选样例",
 };
 
 const SIGNAL_LABELS: Record<Language, Record<TacticalSignal, string>> = {
@@ -220,6 +220,12 @@ export const UI_TEXT = {
     play: "Play",
     pause: "Pause",
     replay: "Replay",
+    previousClip: "Previous clip",
+    nextClip: "Next clip",
+    clipStart: "Clip start",
+    currentWindow: "Window",
+    currentTime: "Current",
+    scrubVideo: "Scrub video playback",
     clip: "Clip",
     fullMatch: "Full match",
     selectClipToView: "Select a clip to view it.",
@@ -273,6 +279,21 @@ export const UI_TEXT = {
     importTelemetry: "Import telemetry data",
     importTelemetryCopy:
       "Support for Opta, StatsBomb, and custom PitchLens JSON/CSV",
+    youtubeMode: "YouTube URL mode",
+    youtubeModeCopy:
+      "Link a public YouTube broadcast to the current workspace for contextual playback. This does not run clip extraction.",
+    youtubeUrl: "YouTube URL",
+    kickoffOffset: "Kickoff offset (sec)",
+    linkYoutube: "Link YouTube source",
+    analyzeYoutube: "Analyze YouTube video",
+    loadYoutubeDemo: "Analyze video demo",
+    youtubeDemoMeta:
+      "Demo source: Arsenal v Chelsea (FA Women's League Cup highlights). This path runs through the local video engine.",
+    youtubeModeMeta:
+      "Use this with event data when you want broadcast context without local video upload.",
+    youtubeLinked: "YouTube linked source",
+    openYoutube: "Open on YouTube",
+    linkedVideoSource: "Linked video source",
     importFiles: "Import files",
     libraryDemo: "Library demo",
     activeDataset: "Active dataset",
@@ -376,6 +397,12 @@ export const UI_TEXT = {
     play: "播放",
     pause: "暂停",
     replay: "重播",
+    previousClip: "上一片段",
+    nextClip: "下一片段",
+    clipStart: "回到片段起点",
+    currentWindow: "时间窗",
+    currentTime: "当前时间",
+    scrubVideo: "拖动视频进度",
     clip: "片段",
     fullMatch: "整场视频",
     selectClipToView: "请选择一个片段查看。",
@@ -426,6 +453,21 @@ export const UI_TEXT = {
     structuredData: "结构化数据",
     importTelemetry: "导入事件数据",
     importTelemetryCopy: "支持 Opta、StatsBomb 和自定义 PitchLens JSON/CSV",
+    youtubeMode: "YouTube 链接模式",
+    youtubeModeCopy:
+      "把公开视频链接到当前工作区，用于回看上下文，不会执行本地片段提取。",
+    youtubeUrl: "YouTube 链接",
+    kickoffOffset: "开球偏移（秒）",
+    linkYoutube: "链接 YouTube 视频源",
+    analyzeYoutube: "分析 YouTube 视频",
+    loadYoutubeDemo: "分析视频示例",
+    youtubeDemoMeta:
+      "示例视频：Arsenal v Chelsea（女联赛杯集锦）。这条路径会走本地视频分析引擎。",
+    youtubeModeMeta:
+      "适合配合事件数据使用，在不上传本地视频的情况下补充转播上下文。",
+    youtubeLinked: "已链接 YouTube 视频源",
+    openYoutube: "在 YouTube 中打开",
+    linkedVideoSource: "已链接视频源",
     importFiles: "导入文件",
     libraryDemo: "加载示例",
     activeDataset: "当前数据集",

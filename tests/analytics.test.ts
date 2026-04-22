@@ -6,7 +6,9 @@ import {
   comparePossessionGroups,
   defaultScenarioFilters,
   filterPossessions,
+  recommendVideoFilters,
   retrieveRepresentativePossessions,
+  selectDominantSignal,
 } from "../src/lib/analytics";
 
 test("descriptor derivation keeps the default scenario in the defensive third", () => {
@@ -67,4 +69,26 @@ test("fair comparison exposes interpretable deltas between Arsenal and Liverpool
   assert.equal(turnoverDelta?.winner, "left");
   assert.equal(progressionDelta?.winner, "left");
   assert.match(comparison.summary, /progress/i);
+});
+
+test("video defaults widen the lock to fit imported video moments", () => {
+  const videoLike = allPossessions
+    .filter((possession) => possession.opponent === "Liverpool")
+    .slice(0, 3)
+    .map((possession, index) => ({
+      ...possession,
+      minute: 40 + index * 5,
+      phase: "Press resistance" as const,
+    }));
+
+  const filters = recommendVideoFilters(videoLike);
+  const dominantSignal = selectDominantSignal(videoLike);
+
+  assert.equal(filters.gameState, "Drawing");
+  assert.equal(filters.phase, "All phases");
+  assert.equal(filters.startZone, "All start zones");
+  assert.equal(filters.zone, "All zones");
+  assert.deepEqual(filters.minuteRange, [40, 50]);
+  assert.equal(filters.timeWindow, "31-60");
+  assert.equal(dominantSignal, "Press escape chain");
 });

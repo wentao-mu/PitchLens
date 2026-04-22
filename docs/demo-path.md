@@ -2,27 +2,29 @@
 
 This document defines the standard demo route for the current prototype. Use it for class presentations, video recording, and screenshots so the product story stays consistent.
 
+By default, the app boots into the bundled curated sample dataset. This keeps the opening state readable and presentation-friendly while still leaving the bundled real-match demo, StatsBomb import, and video input available in `Ingest`.
+
 ## Recommended route
 
 Page order:
 
 1. `Overview`
-2. `Ingest`
-3. `Filters`
-4. `Scenarios`
-5. `Deep Dive`
+2. `Filters`
+3. `Scenarios`
+4. `Deep Dive`
+5. `Ingest` when you want to show alternate input paths
 
 ## Best demo setup
 
-Use the free event-first path unless you specifically want to highlight video ingest.
+Use the default curated sample unless you specifically want to show data replacement or real-match import.
 
 Recommended setup:
 
-1. Open `Ingest`
-2. Connect to `Free StatsBomb Open Data`
-3. Select a competition and season
-4. Import two matches that share one team
-5. Let that shared team become the active analysis team
+1. Start from the bundled curated sample
+2. Start on `Overview`
+3. Keep the default build-up context lock
+4. Move through `Filters`, `Scenarios`, and `Deep Dive`
+5. Only enter `Ingest` if you want to replace the default sample with the bundled real-match demo, free StatsBomb data, structured files, or video
 
 This gives you the most stable path for:
 
@@ -108,10 +110,9 @@ Point:
 
 Use this compact route:
 
-1. `Ingest`: import two free StatsBomb matches
-2. `Filters`: lock build-up context
-3. `Scenarios`: choose one signal
-4. `Deep Dive`: inspect one possession, compare two opponents, export note
+1. `Overview`: show active dataset, lock, signal, and headline evidence
+2. `Scenarios`: choose one signal
+3. `Deep Dive`: inspect one possession, compare two opponents, export note
 
 ## If you want to include video
 
@@ -119,8 +120,8 @@ Only do this after the event-first route is already clear.
 
 Recommended order:
 
-1. Finish the event-first demo first
-2. Go back to `Ingest`
+1. Finish the default event-first demo first
+2. Go to `Ingest`
 3. Upload one video
 4. Show that the extracted clips re-enter the same interface and can be analyzed with the same downstream workflow
 

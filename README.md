@@ -53,14 +53,15 @@ The current UI is organized into five pages:
 
 ## Standard demo path
 
+On startup, PitchLens opens on the bundled curated sample dataset by default. This keeps the first-run experience stable and preserves the more readable hand-authored example possessions. Real-match data, free StatsBomb Open Data, and video input remain available through `Ingest`.
+
 The most reliable demo path is:
 
-1. Open `Ingest`
-2. Use `Free StatsBomb Open Data`
-3. Import two real matches that share one common team
-4. Move to `Filters` and lock a build-up context
-5. Move to `Scenarios` and choose the signal to analyze
-6. Move to `Deep Dive` to inspect representative possessions, compare two opponents, export a tactical note, and query the assistant
+1. Start from the curated sample on `Overview`
+2. Move to `Filters` and confirm the build-up context lock
+3. Move to `Scenarios` and choose the signal to analyze
+4. Move to `Deep Dive` to inspect representative possessions, compare two opponents, export a tactical note, and query the assistant
+5. Use `Ingest` only if you want to replace the sample with the bundled real-match demo, free StatsBomb matches, structured files, or video input
 
 For a concrete walkthrough, see [docs/demo-path.md](/Users/carl/codex%20project/cs6750/docs/demo-path.md).
 

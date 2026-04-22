@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
+import sys
 import uuid
 from datetime import date
 from pathlib import Path
@@ -66,6 +68,75 @@ class StatsBombImportRequest(BaseModel):
     matchIds: list[int] = Field(default_factory=list)
 
 
+class YouTubeAnalysisRequest(BaseModel):
+    url: str
+    teamName: str
+    opponentName: str = "Opponent"
+    competition: str = "Video session"
+    venue: str = "Home"
+    scoreline: str = "0-0"
+    gameState: str = "Drawing"
+    matchDate: str = Field(default_factory=lambda: date.today().isoformat())
+
+
+def yt_dlp_available() -> bool:
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "yt_dlp", "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def download_youtube_video(url: str, job_dir: Path) -> Path:
+    output_template = job_dir / "source.%(ext)s"
+    try:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "yt_dlp",
+                "--no-playlist",
+                "--restrict-filenames",
+                "--quiet",
+                "--no-progress",
+                "--merge-output-format",
+                "mp4",
+                "-f",
+                "mp4/bestvideo*+bestaudio/best",
+                "-o",
+                str(output_template),
+                url,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as error:
+        detail = error.stderr.strip() or error.stdout.strip() or str(error)
+        raise HTTPException(
+            status_code=502,
+            detail=f"YouTube download failed: {detail}",
+        ) from error
+
+    candidates = sorted(
+        path
+        for path in job_dir.glob("source.*")
+        if path.is_file() and path.suffix.lower() not in {".part", ".ytdl"}
+    )
+    if not candidates:
+        raise HTTPException(
+            status_code=502,
+            detail="YouTube download finished without a usable local video file.",
+        )
+
+    return candidates[0]
+
+
 @app.get("/api/health")
 def health() -> dict[str, object]:
     ffmpeg_ready = ffmpeg_available()
@@ -115,6 +186,56 @@ def statsbomb_import_endpoint(payload: StatsBombImportRequest) -> dict[str, obje
         return import_matches(payload.matchIds)
     except RuntimeError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/analyze-video-url")
+def analyze_video_url_endpoint(
+    payload: YouTubeAnalysisRequest,
+    request: Request,
+) -> dict[str, object]:
+    if not ffmpeg_available():
+        raise HTTPException(status_code=503, detail="ffmpeg/ffprobe are not available.")
+    if not yt_dlp_available():
+        raise HTTPException(
+            status_code=503,
+            detail="yt-dlp is not installed in the local API environment. Re-run setup:api to enable YouTube analysis.",
+        )
+    if payload.venue not in {"Home", "Away"}:
+        raise HTTPException(status_code=400, detail="Venue must be Home or Away.")
+    if payload.gameState not in {"Winning", "Drawing", "Losing"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Game state must be Winning, Drawing, or Losing.",
+        )
+
+    job_id = uuid.uuid4().hex[:12]
+    job_dir = OUTPUT_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        input_path = download_youtube_video(payload.url.strip(), job_dir)
+        options = AnalysisOptions(
+            job_id=job_id,
+            team_name=payload.teamName.strip() or "Analysis Team",
+            opponent_name=payload.opponentName.strip() or "Opponent",
+            competition=payload.competition.strip() or "Video session",
+            venue=payload.venue,
+            scoreline=payload.scoreline.strip() or "0-0",
+            game_state=payload.gameState,
+            match_date=payload.matchDate or date.today().isoformat(),
+        )
+        return analyze_video(
+            input_path=input_path,
+            job_dir=job_dir,
+            options=options,
+            base_url=str(request.base_url),
+        )
+    except HTTPException:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise
+    except Exception as error:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=str(error)) from error
 
 
 @app.post("/api/analyze-video")

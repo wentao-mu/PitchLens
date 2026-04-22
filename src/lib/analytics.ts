@@ -429,6 +429,70 @@ export const normalizePossessionRecord = (candidate: Partial<Possession>): Posse
 export const normalizePossessionSet = (possessions: Possession[]) =>
   possessions.map((possession) => normalizePossessionRecord(possession));
 
+const dominantValue = <T extends string>(values: T[]): T | null => {
+  if (!values.length) {
+    return null;
+  }
+
+  const counts = values.reduce<Record<string, number>>((accumulator, value) => {
+    accumulator[value] = (accumulator[value] ?? 0) + 1;
+    return accumulator;
+  }, {});
+
+  return Object.entries(counts).sort((left, right) => right[1] - left[1])[0]?.[0] as T | null;
+};
+
+const minuteRangeToTimeWindow = ([start, end]: MinuteRange): TimeWindow => {
+  if (start >= 0 && end <= 30) {
+    return "0-30";
+  }
+  if (start >= 31 && end <= 60) {
+    return "31-60";
+  }
+  if (start >= 61 && end <= 90) {
+    return "61-90";
+  }
+  return "All windows";
+};
+
+export const selectDominantSignal = (
+  possessions: Possession[],
+): TacticalSignal => {
+  const normalized = normalizePossessionSet(possessions);
+  return dominantValue(normalized.map((possession) => possession.primarySignal)) ??
+    "Left overload release";
+};
+
+export const recommendVideoFilters = (
+  possessions: Possession[],
+): ContextFilters => {
+  const normalized = normalizePossessionSet(possessions);
+  if (!normalized.length) {
+    return defaultFilters;
+  }
+
+  const minutes = normalized
+    .map((possession) => possession.minute)
+    .filter((minute) => Number.isFinite(minute))
+    .sort((left, right) => left - right);
+  const minMinute = clamp(Math.floor(minutes[0] ?? 0), 0, 90);
+  const maxMinute = clamp(Math.ceil(minutes.at(-1) ?? minMinute), minMinute, 90);
+  const minuteRange: MinuteRange = clampMinuteRange([minMinute, maxMinute]);
+  const dominantGameState = dominantValue(
+    normalized.map((possession) => possession.gameState),
+  );
+
+  return {
+    ...defaultFilters,
+    gameState:
+      dominantGameState && normalized.every((possession) => possession.gameState === dominantGameState)
+        ? dominantGameState
+        : "All states",
+    minuteRange,
+    timeWindow: minuteRangeToTimeWindow(minuteRange),
+  };
+};
+
 export const timeWindowToRange = (timeWindow: TimeWindow): MinuteRange => {
   if (timeWindow === "0-30") {
     return [0, 30];
