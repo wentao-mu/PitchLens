@@ -286,9 +286,9 @@ export const UI_TEXT = {
     kickoffOffset: "Kickoff offset (sec)",
     linkYoutube: "Link YouTube source",
     analyzeYoutube: "Analyze YouTube video",
-    loadYoutubeDemo: "Analyze video demo",
+    loadYoutubeDemo: "Load bundled video demo",
     youtubeDemoMeta:
-      "Demo source: Arsenal v Chelsea (FA Women's League Cup highlights). This path runs through the local video engine.",
+      "Demo source: Arsenal v Chelsea (FA Women's League Cup highlights), bundled locally with precomputed clips.",
     youtubeModeMeta:
       "Use this with event data when you want broadcast context without local video upload.",
     youtubeLinked: "YouTube linked source",

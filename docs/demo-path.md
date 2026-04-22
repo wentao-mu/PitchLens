@@ -56,11 +56,12 @@ Show:
 
 - structured event import
 - free StatsBomb Open Data import
+- bundled local video demo
 - video upload
 
 Point:
 
-- the primary workflow is event-first, but the product can also ingest video and convert it into the same evidence model
+- the primary workflow is event-first, but the product can also load a bundled video demo or ingest uploaded video and convert it into the same evidence model
 
 ### Filters
 
@@ -122,7 +123,7 @@ Recommended order:
 
 1. Finish the default event-first demo first
 2. Go to `Ingest`
-3. Upload one video
+3. Load the bundled video demo, or upload one video
 4. Show that the extracted clips re-enter the same interface and can be analyzed with the same downstream workflow
 
 ## Screenshot priorities

@@ -25,6 +25,7 @@ The prototype already supports multiple input paths:
 - Synthetic bundled sample data
 - Structured event import from local `CSV` / `JSON`
 - Free real-match import through StatsBomb Open Data
+- Bundled local video demo with precomputed clips
 - Match video upload through a local FastAPI + `ffmpeg` pipeline
 
 ### Secondary implemented features
@@ -140,6 +141,8 @@ The `Ingest` page supports one uploaded match video at a time. The local backend
 - cuts tactical clips
 - converts them into possession-style evidence
 - returns the result to the same analysis interface
+
+There is also a bundled local video demo in `Ingest`. It uses a precomputed highlight package stored in the repo, so the demo path does not depend on live YouTube downloading.
 
 Supported video types:
 

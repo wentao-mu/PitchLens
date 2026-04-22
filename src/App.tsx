@@ -141,6 +141,7 @@ const VIDEO_EXTENSIONS = [".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"];
 const DATA_EXTENSIONS = [".csv", ".json"];
 const DEFAULT_DEMO_YOUTUBE_URL =
   "https://www.youtube.com/watch?v=F81ZM-ZG6-g&t=1800s";
+const BUNDLED_VIDEO_DEMO_PATH = "/demo/video-arsenal-wfc/analysis.json";
 const DEFAULT_DEMO_YOUTUBE_SOURCE = {
   videoId: "F81ZM-ZG6-g",
   url: DEFAULT_DEMO_YOUTUBE_URL,
@@ -1637,12 +1638,47 @@ function App() {
     );
   };
 
-  const handleLoadYoutubeDemo = () => {
-    setYoutubeUrlDraft(DEFAULT_DEMO_YOUTUBE_URL);
-    setYoutubeKickoffOffsetSec(
-      String(DEFAULT_DEMO_YOUTUBE_SOURCE.kickoffOffsetSec),
-    );
-    void analyzeYouTubeVideo(DEFAULT_DEMO_YOUTUBE_URL);
+  const loadBundledVideoDemo = async () => {
+    try {
+      setIngestError("");
+      setIsVideoAnalyzing(true);
+      setIngestStatus(
+        language === "zh"
+          ? "正在加载内置视频示例..."
+          : "Loading bundled video demo...",
+      );
+
+      const response = await fetch(BUNDLED_VIDEO_DEMO_PATH);
+      if (!response.ok) {
+        throw new Error(
+          language === "zh"
+            ? "无法加载内置视频示例。"
+            : "Could not load the bundled video demo.",
+        );
+      }
+
+      const result = (await response.json()) as VideoAnalysisResult;
+      setYoutubeUrlDraft(DEFAULT_DEMO_YOUTUBE_URL);
+      setYoutubeKickoffOffsetSec(
+        String(DEFAULT_DEMO_YOUTUBE_SOURCE.kickoffOffsetSec),
+      );
+      applyVideoResult(result, "Bundled video demo");
+    } catch (error) {
+      setIngestError(
+        error instanceof Error
+          ? error.message
+          : language === "zh"
+            ? "内置视频示例加载失败。"
+            : "Bundled video demo failed to load.",
+      );
+      setIngestStatus(
+        language === "zh"
+          ? "内置视频示例加载失败。"
+          : "Bundled video demo failed to load.",
+      );
+    } finally {
+      setIsVideoAnalyzing(false);
+    }
   };
 
   const loadBundledDemo = async (options?: { onStartup?: boolean }) => {
@@ -3125,7 +3161,7 @@ function App() {
                       <button
                         type="button"
                         className="ghost-button"
-                        onClick={handleLoadYoutubeDemo}
+                        onClick={() => void loadBundledVideoDemo()}
                         disabled={isVideoAnalyzing}
                       >
                         {ui.loadYoutubeDemo}

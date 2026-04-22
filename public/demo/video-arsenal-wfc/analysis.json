@@ -1,0 +1,509 @@
+{
+  "jobId": "a91bb0849a90",
+  "datasetLabel": "Arsenal WFC video analysis",
+  "analysisTeam": "Arsenal WFC",
+  "availableTeams": [
+    "Arsenal WFC"
+  ],
+  "fullVideoUrl": "/demo/video-arsenal-wfc/full.mp4",
+  "possessions": [
+    {
+      "id": "a91bb0849a90-moment-01",
+      "team": "Arsenal WFC",
+      "title": "Central carry breaks the middle lane for a progressive retain",
+      "matchId": "a91bb0849a90",
+      "matchLabel": "Arsenal WFC vs Chelsea Women",
+      "date": "2018-12-14",
+      "opponent": "Chelsea Women",
+      "venue": "Home",
+      "scoreline": "0-0",
+      "minute": 1,
+      "durationSec": 21.6,
+      "gameState": "Drawing",
+      "phase": "Build-up",
+      "zone": "Central lane",
+      "formation": "Compact 4-2-3-1 shell",
+      "transitionType": "Open play",
+      "passes": 13,
+      "progression": 85,
+      "pressure": 65,
+      "actionValue": 76,
+      "xThreat": 0.76,
+      "outcome": "Progressive retain",
+      "players": [
+        "Back line",
+        "Pivot",
+        "Interior",
+        "Far-side runner"
+      ],
+      "primarySignal": "Central lane break",
+      "secondarySignals": [
+        "Left overload release",
+        "Press escape chain"
+      ],
+      "signalScores": {
+        "Left overload release": 0.6179272727272728,
+        "Central lane break": 0.695060612462977,
+        "Press escape chain": 0.39814486274854294,
+        "Wide switch cutback": 0.3704517681773327,
+        "Counter-press regain": 0.32295081605243925
+      },
+      "note": "Video analysis isolated a 22s build-up passage through the central lane with movement intensity in the 38th visual band and final-third detail at 39% of the clip profile.",
+      "whyItMatters": "This clip packages the central lane break pattern into a replayable sequence: pressure proxy 65, outcome progressive retain, and video-derived threat 0.76.",
+      "path": [
+        {
+          "x": 12,
+          "y": 54,
+          "label": "Recover"
+        },
+        {
+          "x": 24,
+          "y": 50,
+          "label": "Set"
+        },
+        {
+          "x": 62,
+          "y": 49.0,
+          "label": "Break"
+        },
+        {
+          "x": 76.6,
+          "y": 50,
+          "label": "Access"
+        },
+        {
+          "x": 84.6,
+          "y": 48,
+          "label": "Finish"
+        }
+      ],
+      "videoClipUrl": "/demo/video-arsenal-wfc/clip_01.mp4",
+      "videoPosterUrl": "/demo/video-arsenal-wfc/poster_01.jpg",
+      "fullVideoUrl": "/demo/video-arsenal-wfc/full.mp4",
+      "videoStartSec": 60.92,
+      "videoEndSec": 82.54,
+      "analysisConfidence": 0.7,
+      "derivedFromVideo": true,
+      "videoMomentScore": 0.85,
+      "pitchConfidence": 0.71,
+      "videoSeedTimeSec": 70.0
+    },
+    {
+      "id": "a91bb0849a90-moment-02",
+      "team": "Arsenal WFC",
+      "title": "Central carry breaks the middle lane for a progressive retain",
+      "matchId": "a91bb0849a90",
+      "matchLabel": "Arsenal WFC vs Chelsea Women",
+      "date": "2018-12-14",
+      "opponent": "Chelsea Women",
+      "venue": "Home",
+      "scoreline": "0-0",
+      "minute": 2,
+      "durationSec": 24.9,
+      "gameState": "Drawing",
+      "phase": "Build-up",
+      "zone": "Central lane",
+      "formation": "Compact 4-2-3-1 shell",
+      "transitionType": "Open play",
+      "passes": 14,
+      "progression": 80,
+      "pressure": 55,
+      "actionValue": 72,
+      "xThreat": 0.71,
+      "outcome": "Progressive retain",
+      "players": [
+        "Back line",
+        "Pivot",
+        "Interior",
+        "Far-side runner"
+      ],
+      "primarySignal": "Central lane break",
+      "secondarySignals": [
+        "Left overload release",
+        "Wide switch cutback"
+      ],
+      "signalScores": {
+        "Left overload release": 0.62,
+        "Central lane break": 0.6671324945113908,
+        "Press escape chain": 0.33067694020157157,
+        "Wide switch cutback": 0.3629894155790594,
+        "Counter-press regain": 0.2786389272186491
+      },
+      "note": "Video analysis isolated a 25s build-up passage through the central lane with movement intensity in the 25th visual band and final-third detail at 35% of the clip profile.",
+      "whyItMatters": "This clip packages the central lane break pattern into a replayable sequence: pressure proxy 55, outcome progressive retain, and video-derived threat 0.71.",
+      "path": [
+        {
+          "x": 12,
+          "y": 54,
+          "label": "Recover"
+        },
+        {
+          "x": 24,
+          "y": 50,
+          "label": "Set"
+        },
+        {
+          "x": 60.3,
+          "y": 49.0,
+          "label": "Break"
+        },
+        {
+          "x": 74.8,
+          "y": 50,
+          "label": "Access"
+        },
+        {
+          "x": 82.8,
+          "y": 48,
+          "label": "Finish"
+        }
+      ],
+      "videoClipUrl": "/demo/video-arsenal-wfc/clip_02.mp4",
+      "videoPosterUrl": "/demo/video-arsenal-wfc/poster_02.jpg",
+      "fullVideoUrl": "/demo/video-arsenal-wfc/full.mp4",
+      "videoStartSec": 132.19,
+      "videoEndSec": 157.14,
+      "analysisConfidence": 0.65,
+      "derivedFromVideo": true,
+      "videoMomentScore": 0.96,
+      "pitchConfidence": 0.65,
+      "videoSeedTimeSec": 141.43
+    },
+    {
+      "id": "a91bb0849a90-moment-03",
+      "team": "Arsenal WFC",
+      "title": "Central carry breaks the middle lane for a box entry",
+      "matchId": "a91bb0849a90",
+      "matchLabel": "Arsenal WFC vs Chelsea Women",
+      "date": "2018-12-14",
+      "opponent": "Chelsea Women",
+      "venue": "Home",
+      "scoreline": "0-0",
+      "minute": 2,
+      "durationSec": 22.8,
+      "gameState": "Drawing",
+      "phase": "Build-up",
+      "zone": "Central lane",
+      "formation": "Compact 4-2-3-1 shell",
+      "transitionType": "Open play",
+      "passes": 13,
+      "progression": 85,
+      "pressure": 63,
+      "actionValue": 79,
+      "xThreat": 0.8,
+      "outcome": "Box entry",
+      "players": [
+        "Back line",
+        "Pivot",
+        "Interior",
+        "Far-side runner"
+      ],
+      "primarySignal": "Central lane break",
+      "secondarySignals": [
+        "Left overload release",
+        "Press escape chain"
+      ],
+      "signalScores": {
+        "Left overload release": 0.62,
+        "Central lane break": 0.7122376247364098,
+        "Press escape chain": 0.3871284163653969,
+        "Wide switch cutback": 0.38201032034826404,
+        "Counter-press regain": 0.30561737776458336
+      },
+      "note": "Video analysis isolated a 23s build-up passage through the central lane with movement intensity in the 43th visual band and final-third detail at 46% of the clip profile.",
+      "whyItMatters": "This clip packages the central lane break pattern into a replayable sequence: pressure proxy 63, outcome box entry, and video-derived threat 0.80.",
+      "path": [
+        {
+          "x": 12,
+          "y": 54,
+          "label": "Recover"
+        },
+        {
+          "x": 24,
+          "y": 50,
+          "label": "Set"
+        },
+        {
+          "x": 62,
+          "y": 49.0,
+          "label": "Break"
+        },
+        {
+          "x": 76.6,
+          "y": 50,
+          "label": "Access"
+        },
+        {
+          "x": 84.6,
+          "y": 48,
+          "label": "Finish"
+        }
+      ],
+      "videoClipUrl": "/demo/video-arsenal-wfc/clip_03.mp4",
+      "videoPosterUrl": "/demo/video-arsenal-wfc/poster_03.jpg",
+      "fullVideoUrl": "/demo/video-arsenal-wfc/full.mp4",
+      "videoStartSec": 170.76,
+      "videoEndSec": 193.57,
+      "analysisConfidence": 0.67,
+      "derivedFromVideo": true,
+      "videoMomentScore": 0.88,
+      "pitchConfidence": 0.57,
+      "videoSeedTimeSec": 180.0
+    },
+    {
+      "id": "a91bb0849a90-moment-04",
+      "team": "Arsenal WFC",
+      "title": "Central carry breaks the middle lane for a progressive retain",
+      "matchId": "a91bb0849a90",
+      "matchLabel": "Arsenal WFC vs Chelsea Women",
+      "date": "2018-12-14",
+      "opponent": "Chelsea Women",
+      "venue": "Home",
+      "scoreline": "0-0",
+      "minute": 4,
+      "durationSec": 34.5,
+      "gameState": "Drawing",
+      "phase": "Build-up",
+      "zone": "Central lane",
+      "formation": "Compact 4-2-3-1 shell",
+      "transitionType": "Open play",
+      "passes": 14,
+      "progression": 84,
+      "pressure": 62,
+      "actionValue": 69,
+      "xThreat": 0.69,
+      "outcome": "Progressive retain",
+      "players": [
+        "Back line",
+        "Pivot",
+        "Interior",
+        "Far-side runner"
+      ],
+      "primarySignal": "Central lane break",
+      "secondarySignals": [
+        "Left overload release",
+        "Press escape chain"
+      ],
+      "signalScores": {
+        "Left overload release": 0.62,
+        "Central lane break": 0.6612126565481894,
+        "Press escape chain": 0.375672486502382,
+        "Wide switch cutback": 0.33585265898808586,
+        "Counter-press regain": 0.3105872985449529
+      },
+      "note": "Video analysis isolated a 35s build-up passage through the central lane with movement intensity in the 32th visual band and final-third detail at 20% of the clip profile.",
+      "whyItMatters": "This clip packages the central lane break pattern into a replayable sequence: pressure proxy 62, outcome progressive retain, and video-derived threat 0.69.",
+      "path": [
+        {
+          "x": 12,
+          "y": 54,
+          "label": "Recover"
+        },
+        {
+          "x": 24,
+          "y": 50,
+          "label": "Set"
+        },
+        {
+          "x": 53.2,
+          "y": 49.0,
+          "label": "Break"
+        },
+        {
+          "x": 76.2,
+          "y": 50,
+          "label": "Access"
+        },
+        {
+          "x": 84.2,
+          "y": 48,
+          "label": "Finish"
+        }
+      ],
+      "videoClipUrl": "/demo/video-arsenal-wfc/clip_04.mp4",
+      "videoPosterUrl": "/demo/video-arsenal-wfc/poster_04.jpg",
+      "fullVideoUrl": "/demo/video-arsenal-wfc/full.mp4",
+      "videoStartSec": 266.71,
+      "videoEndSec": 301.25,
+      "analysisConfidence": 0.68,
+      "derivedFromVideo": true,
+      "videoMomentScore": 0.87,
+      "pitchConfidence": 0.73,
+      "videoSeedTimeSec": 288.57
+    },
+    {
+      "id": "a91bb0849a90-moment-05",
+      "team": "Arsenal WFC",
+      "title": "Weak-side switch creates the finish window for a progressive retain",
+      "matchId": "a91bb0849a90",
+      "matchLabel": "Arsenal WFC vs Chelsea Women",
+      "date": "2018-12-14",
+      "opponent": "Chelsea Women",
+      "venue": "Home",
+      "scoreline": "0-0",
+      "minute": 6,
+      "durationSec": 22.0,
+      "gameState": "Drawing",
+      "phase": "Build-up",
+      "zone": "Right lane",
+      "formation": "Wide 4-3-3 shell",
+      "transitionType": "Open play",
+      "passes": 13,
+      "progression": 81,
+      "pressure": 66,
+      "actionValue": 72,
+      "xThreat": 0.72,
+      "outcome": "Progressive retain",
+      "players": [
+        "Back line",
+        "Pivot",
+        "Interior",
+        "Far-side runner"
+      ],
+      "primarySignal": "Wide switch cutback",
+      "secondarySignals": [
+        "Left overload release",
+        "Press escape chain"
+      ],
+      "signalScores": {
+        "Left overload release": 0.62,
+        "Central lane break": 0.40198904133503877,
+        "Press escape chain": 0.40516768247929347,
+        "Wide switch cutback": 0.621804491845562,
+        "Counter-press regain": 0.3247847380260671
+      },
+      "note": "Video analysis isolated a 22s build-up passage through the right lane with movement intensity in the 41th visual band and final-third detail at 23% of the clip profile.",
+      "whyItMatters": "This clip packages the wide switch cutback pattern into a replayable sequence: pressure proxy 66, outcome progressive retain, and video-derived threat 0.72.",
+      "path": [
+        {
+          "x": 12,
+          "y": 30,
+          "label": "Recover"
+        },
+        {
+          "x": 24,
+          "y": 26,
+          "label": "Set"
+        },
+        {
+          "x": 62,
+          "y": 23.0,
+          "label": "Break"
+        },
+        {
+          "x": 75.2,
+          "y": 22,
+          "label": "Access"
+        },
+        {
+          "x": 83.2,
+          "y": 20,
+          "label": "Finish"
+        }
+      ],
+      "videoClipUrl": "/demo/video-arsenal-wfc/clip_05.mp4",
+      "videoPosterUrl": "/demo/video-arsenal-wfc/poster_05.jpg",
+      "fullVideoUrl": "/demo/video-arsenal-wfc/full.mp4",
+      "videoStartSec": 362.19,
+      "videoEndSec": 384.19,
+      "analysisConfidence": 0.68,
+      "derivedFromVideo": true,
+      "videoMomentScore": 0.9,
+      "pitchConfidence": 0.67,
+      "videoSeedTimeSec": 371.43
+    },
+    {
+      "id": "a91bb0849a90-moment-06",
+      "team": "Arsenal WFC",
+      "title": "Central carry breaks the middle lane for a box entry",
+      "matchId": "a91bb0849a90",
+      "matchLabel": "Arsenal WFC vs Chelsea Women",
+      "date": "2018-12-14",
+      "opponent": "Chelsea Women",
+      "venue": "Home",
+      "scoreline": "0-0",
+      "minute": 6,
+      "durationSec": 12.5,
+      "gameState": "Drawing",
+      "phase": "Sustained attack",
+      "zone": "Central lane",
+      "formation": "Compact 4-2-3-1 shell",
+      "transitionType": "Open play",
+      "passes": 9,
+      "progression": 72,
+      "pressure": 62,
+      "actionValue": 89,
+      "xThreat": 0.91,
+      "outcome": "Box entry",
+      "players": [
+        "Ball carrier",
+        "Support lane",
+        "Final-third runner"
+      ],
+      "primarySignal": "Central lane break",
+      "secondarySignals": [
+        "Wide switch cutback",
+        "Left overload release"
+      ],
+      "signalScores": {
+        "Left overload release": 0.4279636363636363,
+        "Central lane break": 0.7633842086529427,
+        "Press escape chain": 0.3799154984742448,
+        "Wide switch cutback": 0.6000000000000001,
+        "Counter-press regain": 0.30983738088039303
+      },
+      "note": "Video analysis isolated a 12s sustained attack passage through the central lane with movement intensity in the 35th visual band and final-third detail at 100% of the clip profile.",
+      "whyItMatters": "This clip packages the central lane break pattern into a replayable sequence: pressure proxy 62, outcome box entry, and video-derived threat 0.91.",
+      "path": [
+        {
+          "x": 12,
+          "y": 54,
+          "label": "Recover"
+        },
+        {
+          "x": 24,
+          "y": 50,
+          "label": "Set"
+        },
+        {
+          "x": 61.9,
+          "y": 49.0,
+          "label": "Break"
+        },
+        {
+          "x": 71.9,
+          "y": 50,
+          "label": "Access"
+        },
+        {
+          "x": 79.9,
+          "y": 48,
+          "label": "Finish"
+        }
+      ],
+      "videoClipUrl": "/demo/video-arsenal-wfc/clip_06.mp4",
+      "videoPosterUrl": "/demo/video-arsenal-wfc/poster_06.jpg",
+      "fullVideoUrl": "/demo/video-arsenal-wfc/full.mp4",
+      "videoStartSec": 386.67,
+      "videoEndSec": 399.13,
+      "analysisConfidence": 0.62,
+      "derivedFromVideo": true,
+      "videoMomentScore": 0.85,
+      "pitchConfidence": 0.34,
+      "videoSeedTimeSec": 395.71
+    }
+  ],
+  "summary": {
+    "competition": "FA Women's League Cup",
+    "videoDurationSec": 399.1,
+    "videoDurationLabel": "6:39",
+    "nativeFps": 23.98,
+    "analysisFps": 1.4,
+    "resolution": "640x360",
+    "momentCount": 6,
+    "averagePitchConfidence": 0.65,
+    "cutCount": 24,
+    "engine": "PitchLens local video engine",
+    "processedOn": "2026-04-21"
+  }
+}
