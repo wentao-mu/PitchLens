@@ -6,6 +6,12 @@ PitchLens is a workflow-centered football tactical analysis prototype. The syste
 
 The current implementation supports an event-first analysis workflow as the primary path, while keeping video ingest and an AI assistant available as secondary extensions inside the same product surface.
 
+## Live demo
+
+Public deployment:
+
+- [https://pitchlens-dh2s.onrender.com](https://pitchlens-dh2s.onrender.com)
+
 ## What is implemented
 
 ### Primary analysis workflow
