@@ -1,9 +1,5 @@
 import type { AssistantRequest, AssistantResponse } from "../types";
-
-const API_BASE = (import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000").replace(
-  /\/$/,
-  "",
-);
+import { apiUrl } from "./apiBase";
 
 const SIGNAL_LABELS_ZH: Record<string, string> = {
   "Left overload release": "左路过载释放",
@@ -12,8 +8,6 @@ const SIGNAL_LABELS_ZH: Record<string, string> = {
   "Wide switch cutback": "弱侧转移后倒三角",
   "Counter-press regain": "反抢夺回",
 };
-
-const apiUrl = (path: string) => `${API_BASE}${path}`;
 
 const containsCjk = (text: string) => /[\u4e00-\u9fff]/.test(text);
 

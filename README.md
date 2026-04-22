@@ -105,6 +105,22 @@ npm run test
 npm run build
 ```
 
+## Deployment
+
+The repo now supports single-service deployment with Docker.
+
+- The frontend is built with Vite during the Docker build.
+- The FastAPI backend serves the built frontend from the same origin in production.
+- Video assets are exposed from `/media/...`.
+
+For Render:
+
+1. Connect the repository.
+2. Deploy the `render.yaml` blueprint or create a Docker web service from this repo.
+3. Use the default start command from the `Dockerfile`.
+
+After deploy, the app should be usable from one link without a separate API hostname.
+
 ## Free real-match import
 
 The local API exposes a free StatsBomb Open Data path:

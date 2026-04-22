@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: pitchlens
+    runtime: docker
+    plan: starter
+    autoDeploy: true

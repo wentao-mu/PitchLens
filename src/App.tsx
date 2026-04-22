@@ -365,7 +365,7 @@ function SectionTypewriter({ text }: { text: string }) {
 }
 
 function App() {
-  const [language, setLanguage] = useState<Language>("en");
+  const [language] = useState<Language>("en");
   const ui = UI_TEXT[language];
   const [sourcePossessions, setSourcePossessions] =
     useState<Possession[]>(allPossessions);
@@ -1731,15 +1731,6 @@ function App() {
               {channel.label}
             </button>
           ))}
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() =>
-              setLanguage((current) => (current === "zh" ? "en" : "zh"))
-            }
-          >
-            {ui.langSwitch}
-          </button>
         </nav>
         <div className="header-status">
           <span>{ui.engine}</span>

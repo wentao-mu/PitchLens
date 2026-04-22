@@ -3,13 +3,7 @@ import type {
   StatsBombImportResponse,
   StatsBombMatch,
 } from "../types";
-
-const API_BASE = (import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000").replace(
-  /\/$/,
-  "",
-);
-
-const apiUrl = (path: string) => `${API_BASE}${path}`;
+import { apiUrl } from "./apiBase";
 
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {

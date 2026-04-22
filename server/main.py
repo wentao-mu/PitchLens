@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -17,6 +18,7 @@ from .statsbomb_open_data import import_matches, list_competitions, list_matches
 from .video_analysis import AnalysisOptions, analyze_video, ffmpeg_available
 
 BASE_DIR = Path(__file__).resolve().parent
+DIST_DIR = BASE_DIR.parent / "dist"
 OUTPUT_DIR = BASE_DIR / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -37,7 +39,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.mount("/assets", StaticFiles(directory=OUTPUT_DIR), name="assets")
+app.mount("/media", StaticFiles(directory=OUTPUT_DIR), name="media")
 
 
 class AssistantMessage(BaseModel):
@@ -300,3 +302,12 @@ async def analyze_video_endpoint(
     except Exception as error:
         shutil.rmtree(job_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=str(error)) from error
+
+
+if DIST_DIR.exists():
+
+    @app.get("/")
+    def frontend_index() -> FileResponse:
+        return FileResponse(DIST_DIR / "index.html")
+
+    app.mount("/", StaticFiles(directory=DIST_DIR, html=True), name="frontend")

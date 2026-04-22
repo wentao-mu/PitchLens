@@ -1,11 +1,5 @@
 import type { VideoAnalysisResult, VideoIngestInput } from "../types";
-
-const API_BASE = (import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000").replace(
-  /\/$/,
-  "",
-);
-
-const apiUrl = (path: string) => `${API_BASE}${path}`;
+import { apiUrl } from "./apiBase";
 
 export async function getVideoEngineHealth() {
   const response = await fetch(apiUrl("/api/health"));

@@ -886,7 +886,7 @@ def analyze_video(
     seeds = select_seed_frames(features, metadata.duration_sec)
     candidate_windows = build_candidate_windows(seeds, cut_boundaries, metadata.duration_sec)
 
-    asset_base_url = urljoin(base_url, f"assets/{options.job_id}/")
+    asset_base_url = urljoin(base_url, f"media/{options.job_id}/")
     full_video_url = urljoin(asset_base_url, proxy_path.name)
     possessions: list[dict[str, Any]] = []
 
